@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
+import { playerStore, PlayerState } from '../services/PlayerStore';
 
 export type RepeatMode = 'off' | 'all' | 'one' | 'shuffle';
 
@@ -30,6 +31,11 @@ export interface PlayerContextType {
   repeatMode: RepeatMode;
   toggleRepeatMode: () => void;
   setRepeatMode: (mode: RepeatMode) => void;
+  // 播放器状态（从 PlayerStore 同步）
+  playerState: PlayerState;
+  playerPosition: number;
+  playerDuration: number;
+  isPlaying: boolean;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -39,6 +45,70 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrack, setCurrentTrackState] = useState<QueuedTrack | null>(null);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [shuffleHistory, setShuffleHistory] = useState<string[]>([]);
+  
+  // 从 PlayerStore 同步的状态
+  const [playerState, setPlayerState] = useState<PlayerState>('idle');
+  const [playerPosition, setPlayerPosition] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  
+  // 用于避免重复处理 completed 状态
+  const lastCompletedTrackId = useRef<string | null>(null);
+
+  // 订阅 PlayerStore 状态变化
+  useEffect(() => {
+    const unsubscribe = playerStore.subscribe((status) => {
+      setPlayerState(status.state);
+      setPlayerPosition(status.position);
+      setPlayerDuration(status.duration);
+      setIsPlaying(status.state === 'playing');
+      
+      // 处理播放完成后的自动逻辑
+      if (status.state === 'completed' && currentTrack) {
+        const trackId = currentTrack.id;
+        
+        // 避免对同一首歌重复处理
+        if (lastCompletedTrackId.current === trackId) {
+          return;
+        }
+        lastCompletedTrackId.current = trackId;
+        
+        // 根据重复模式决定下一步
+        switch (repeatMode) {
+          case 'one':
+            // 单曲循环：重新播放当前歌曲
+            console.log('[PlayerContext] Single loop: replaying current track');
+            playerStore.dispatch({ type: 'PLAY' });
+            break;
+            
+          case 'all':
+            // 列表循环：播放下一首（会循环到第一首）
+            console.log('[PlayerContext] List loop: playing next track');
+            handleAutoPlayNext();
+            break;
+            
+          case 'shuffle':
+            // 随机模式：随机播放下一首
+            console.log('[PlayerContext] Shuffle: playing random track');
+            handleAutoPlayNext();
+            break;
+            
+          case 'off':
+          default:
+            // 不循环：停在当前位置
+            console.log('[PlayerContext] No loop: staying at end');
+            break;
+        }
+      }
+      
+      // 当切换到新歌曲时，重置 completed 标记
+      if (status.state !== 'completed') {
+        lastCompletedTrackId.current = null;
+      }
+    });
+    
+    return unsubscribe;
+  }, [currentTrack, repeatMode]);
 
   const setCurrentTrack = useCallback((track: QueuedTrack | null) => {
     setCurrentTrackState(track);
@@ -59,7 +129,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const hasNextTrack = useMemo(() => {
     if (currentTrackIndex === -1) return false;
     if (queue.length === 0) return false;
-    if (queue.length === 1) return false; // 只有一首歌时禁用下一首
+    if (queue.length === 1) return false;
     switch (repeatMode) {
       case 'off':
         return currentTrackIndex < queue.length - 1;
@@ -75,7 +145,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const hasPreviousTrack = useMemo(() => {
     if (currentTrackIndex === -1) return false;
     if (queue.length === 0) return false;
-    if (queue.length === 1) return false; // 只有一首歌时禁用上一首
+    if (queue.length === 1) return false;
     switch (repeatMode) {
       case 'off':
       case 'all':
@@ -149,6 +219,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return nextTrack;
   }, [queue, currentTrackIndex, repeatMode, getRandomTrack, currentTrack]);
 
+  // 自动播放下一首（用于播放完成后）
+  const handleAutoPlayNext = useCallback(() => {
+    const nextTrack = playNextTrack();
+    if (nextTrack) {
+      // 触发播放将在 player.tsx 中处理
+      // 这里只需要更新 currentTrack
+    }
+  }, [playNextTrack]);
+
   // 手动点击下一首（不受单曲循环影响）
   const skipToNext = useCallback((): QueuedTrack | null => {
     if (queue.length === 0) return null;
@@ -159,7 +238,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else if (currentTrackIndex < queue.length - 1) {
       nextIndex = currentTrackIndex + 1;
     } else {
-      // 到最后一首
       if (repeatMode === 'off') {
         return null;
       } else {
@@ -171,7 +249,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrentTrackState(nextTrack);
     return nextTrack;
   }, [queue, currentTrackIndex, repeatMode]);
-
 
   const playPreviousTrack = useCallback((): QueuedTrack | null => {
     if (!hasPreviousTrack) return null;
@@ -233,6 +310,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       repeatMode,
       toggleRepeatMode,
       setRepeatMode,
+      playerState,
+      playerPosition,
+      playerDuration,
+      isPlaying,
     }}>
       {children}
     </PlayerContext.Provider>

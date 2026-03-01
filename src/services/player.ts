@@ -1,10 +1,16 @@
-import { createAudioPlayer, setAudioModeAsync, AudioPlayer, AudioStatus } from 'expo-audio';
+// Player.ts - 简化版 API，使用 PlayerStore 状态机
+// 这个文件提供向后兼容的 API，实际逻辑在 PlayerStore.ts
 
-let player: AudioPlayer | null = null;
-let isLoadingTrack = false;
-let currentTrackId: string | null = null;
-let statusListener: ReturnType<AudioPlayer['addListener']> | null = null;
+import { playerStore, Track } from './PlayerStore';
 
+export { Track };
+
+// 初始化播放器
+export async function setupPlayer(): Promise<boolean> {
+  return playerStore.initialize();
+}
+
+// 加载并播放
 export interface TrackInfo {
   id: string;
   url: string;
@@ -12,23 +18,6 @@ export interface TrackInfo {
   artist: string;
   artwork: string;
   duration: number;
-}
-
-export async function setupPlayer(): Promise<boolean> {
-  try {
-    await setAudioModeAsync({
-      shouldPlayInBackground: true,
-      playsInSilentMode: true,
-    });
-    return true;
-  } catch (error) {
-    console.error('Error setting up audio:', error);
-    return false;
-  }
-}
-
-export function getCurrentTrackId(): string | null {
-  return currentTrackId;
 }
 
 export interface LoadResult {
@@ -42,144 +31,79 @@ export async function loadAndPlay(
   onStatusUpdate?: (status: { position: number; duration: number; isPlaying: boolean }) => void,
   onPlaybackFinish?: () => void
 ): Promise<LoadResult> {
-  // 防止并发加载
-  if (isLoadingTrack) {
-    console.log('已有歌曲正在加载中，忽略此次请求');
-    return { success: false, error: '已有歌曲正在加载中' };
-  }
+  const track: Track = {
+    id: trackInfo.id,
+    url: trackInfo.url,
+    title: trackInfo.title,
+    artist: trackInfo.artist,
+    artwork: trackInfo.artwork,
+    duration: trackInfo.duration,
+  };
 
-  isLoadingTrack = true;
+  // 订阅状态变化
+  if (onStatusUpdate) {
+    const unsubscribe = playerStore.subscribe((status) => {
+      onStatusUpdate({
+        position: status.position,
+        duration: status.duration,
+        isPlaying: status.state === 'playing',
+      });
 
-  try {
-    // 如果正在播放同一首歌，不重载
-    if (currentTrackId === trackInfo.id && player?.isLoaded) {
-      console.log('同一首歌已在播放，不重载');
-      isLoadingTrack = false;
-      return { success: true };
-    }
-
-    // 彻底清理之前的播放器
-    await unload();
-
-    // 创建新播放器
-    player = createAudioPlayer(trackInfo.url);
-    currentTrackId = trackInfo.id;
-
-// 设置状态监听器
-    statusListener = player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
-      if (status.isLoaded) {
-        if (onStatusUpdate) {
-          onStatusUpdate({
-            position: Math.floor(status.currentTime * 1000),
-            duration: Math.floor((status.duration || 0) * 1000),
-            isPlaying: status.playing,
-          });
-        }
-        // 检测播放完成
-        if (status.didJustFinish && onPlaybackFinish) {
-          // 重置播放器状态，让用户可以重新操作
-          player = null;
-          currentTrackId = null;
-          if (statusListener) {
-            statusListener.remove();
-            statusListener = null;
-          }
-          onPlaybackFinish();
-        }
+      // 如果播放完成，调用回调
+      if (status.state === 'completed' && onPlaybackFinish) {
+        onPlaybackFinish();
+        unsubscribe();
       }
     });
-
-    // 开始播放
-    player.play();
-    return { success: true };
-  } catch (error) {
-    console.error('Error loading audio:', error);
-    currentTrackId = null;
-    
-    // 判断错误类型
-    const errorMessage = error instanceof Error ? error.message : '播放失败';
-    const isCorrupted = errorMessage.includes('corrupt') || 
-                       errorMessage.includes('format') ||
-                       errorMessage.includes('decoding') ||
-                       errorMessage.includes('cannot parse');
-    
-    return { 
-      success: false, 
-      error: errorMessage,
-      isCorrupted 
-    };
-  } finally {
-    isLoadingTrack = false;
   }
+
+  await playerStore.dispatch({ type: 'LOAD', track });
+  
+  const status = playerStore.getStatus();
+  return {
+    success: status.state === 'playing' || status.state === 'loading',
+    error: status.error || undefined,
+    isCorrupted: false,
+  };
 }
 
+// 播放
 export async function play(): Promise<void> {
-  if (player && player.isLoaded) {
-    player.play();
-  }
+  await playerStore.dispatch({ type: 'PLAY' });
 }
 
+// 暂停
 export async function pause(): Promise<void> {
-  if (player && player.isLoaded) {
-    player.pause();
-  }
+  await playerStore.dispatch({ type: 'PAUSE' });
 }
 
+// 停止
 export async function stop(): Promise<void> {
-  if (player && player.isLoaded) {
-    player.pause();
-    player.seekTo(0);
-  }
+  await playerStore.dispatch({ type: 'PAUSE' });
+  await playerStore.dispatch({ type: 'SEEK', position: 0 });
 }
 
+// 定位
 export async function seekTo(positionMillis: number): Promise<void> {
-  if (player && player.isLoaded) {
-    await player.seekTo(positionMillis / 1000);
-  }
+  await playerStore.dispatch({ type: 'SEEK', position: positionMillis });
 }
 
+// 获取状态
 export async function getStatus(): Promise<{ position: number; duration: number; isPlaying: boolean } | null> {
-  if (!player || !player.isLoaded) {
-    return null;
-  }
-  
-  try {
-    return {
-      position: Math.floor(player.currentTime * 1000),
-      duration: Math.floor(player.duration * 1000),
-      isPlaying: player.playing,
-    };
-  } catch {
-    // ignore
-  }
-  
-  return null;
+  const status = playerStore.getStatus();
+  return {
+    position: status.position,
+    duration: status.duration,
+    isPlaying: status.state === 'playing',
+  };
 }
 
+// 卸载
 export async function unload(): Promise<void> {
-  try {
-    // 清理监听器
-    if (statusListener) {
-      statusListener.remove();
-      statusListener = null;
-    }
+  await playerStore.dispatch({ type: 'UNLOAD' });
+}
 
-    // 停止并清理播放器
-    if (player) {
-      if (player.isLoaded) {
-        player.pause();
-        player.seekTo(0);
-      }
-      player.remove();
-      player = null;
-    }
-
-    currentTrackId = null;
-  } catch (error) {
-    console.error('Error unloading player:', error);
-    // 即使出错也重置状态
-    player = null;
-    currentTrackId = null;
-    statusListener = null;
-  }
+// 获取当前曲目 ID
+export function getCurrentTrackId(): string | null {
+  return playerStore.getStatus().track?.id || null;
 }
