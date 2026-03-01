@@ -8,9 +8,16 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import { PlayerState, playerStore } from "../services/PlayerStore";
 import { loadQueueState, saveQueueState } from "../storage/queueStorage";
+import {
+  saveProgressToStorage,
+  loadProgressFromStorage,
+  validateProgressPosition,
+} from "../storage/progressStorage";
 import { getDownloadedFilesInfo } from "../services/download";
+import { restoreAndLoadAudio, VideoMetadata } from "../services/audioLoader";
 
 export type RepeatMode = "off" | "all" | "one" | "shuffle";
 
@@ -60,6 +67,9 @@ export interface PlayerContextType {
   isTrackDownloaded: (trackId: string) => boolean;
   markTrackDownloaded: (trackId: string) => void;
   markTrackNotDownloaded: (trackId: string) => void;
+  // 恢复状态
+  isRestoring: boolean;
+  restoredTrackMetadata: VideoMetadata | null;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -77,6 +87,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [playerPosition, setPlayerPosition] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  // 恢复状态
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoredTrackMetadata, setRestoredTrackMetadata] = useState<VideoMetadata | null>(null);
 
   // 下载状态 - 使用 Set 存储已下载的歌曲ID
   const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(
@@ -85,6 +99,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // 用于避免重复处理 completed 状态
   const lastCompletedTrackId = useRef<string | null>(null);
+  
+  // 防抖保存进度的定时器
+  const saveProgressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // 上次保存的进度信息，用于防抖判断
+  const lastProgressRef = useRef<{
+    trackId: string;
+    position: number;
+    timestamp: number;
+  } | null>(null);
 
   // 订阅 PlayerStore 状态变化
   useEffect(() => {
@@ -115,13 +139,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           case "all":
             // 列表循环：播放下一首（会循环到第一首）
             console.log("[PlayerContext] List loop: playing next track");
-            handleAutoPlayNext();
             break;
 
           case "shuffle":
             // 随机模式：随机播放下一首
             console.log("[PlayerContext] Shuffle: playing random track");
-            handleAutoPlayNext();
             break;
 
           case "off":
@@ -141,28 +163,124 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, [currentTrack, repeatMode]);
 
-  const setCurrentTrack = useCallback((track: QueuedTrack | null) => {
-    setCurrentTrackState(track);
-  }, []);
+  // 保存进度到存储
+  const saveCurrentProgress = useCallback(async () => {
+    if (!currentTrack || playerDuration <= 0) return;
+    
+    await saveProgressToStorage({
+      trackId: currentTrack.id,
+      position: playerPosition,
+      duration: playerDuration,
+      timestamp: Date.now(),
+      isPlaying: playerState === 'playing',
+    });
+    
+    lastProgressRef.current = {
+      trackId: currentTrack.id,
+      position: playerPosition,
+      timestamp: Date.now(),
+    };
+  }, [currentTrack, playerPosition, playerDuration, playerState]);
 
-  // 初始化：从存储加载队列状态并扫描下载目录
+  // 防抖保存进度（播放中每5秒）
+  const debouncedSaveProgress = useCallback(() => {
+    if (saveProgressTimer.current) {
+      clearTimeout(saveProgressTimer.current);
+    }
+    
+    saveProgressTimer.current = setTimeout(() => {
+      if (playerState === 'playing' && currentTrack) {
+        saveCurrentProgress();
+      }
+    }, 5000);
+  }, [playerState, currentTrack, saveCurrentProgress]);
+
+  const setCurrentTrack = useCallback(async (track: QueuedTrack | null) => {
+    // 如果切换歌曲，先保存当前歌曲进度
+    if (currentTrack && currentTrack.id !== track?.id) {
+      await saveCurrentProgress();
+    }
+    
+    setCurrentTrackState(track);
+    
+    // 清除之前的定时器
+    if (saveProgressTimer.current) {
+      clearTimeout(saveProgressTimer.current);
+      saveProgressTimer.current = null;
+    }
+  }, [currentTrack, saveCurrentProgress]);
+
+  // AppState 监听：退后台时保存进度
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background') {
+        console.log('[PlayerContext] App going to background, saving progress...');
+        saveCurrentProgress();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [saveCurrentProgress]);
+
+  // 播放中防抖保存和暂停立即保存
+  useEffect(() => {
+    if (playerState === 'playing') {
+      debouncedSaveProgress();
+    } else if (playerState === 'paused') {
+      if (saveProgressTimer.current) {
+        clearTimeout(saveProgressTimer.current);
+        saveProgressTimer.current = null;
+      }
+      saveCurrentProgress();
+    }
+  }, [playerState, debouncedSaveProgress, saveCurrentProgress]);
+
+  // 初始化：从存储加载队列状态和播放进度，并自动加载音频
   useEffect(() => {
     const init = async () => {
-      const saved = await loadQueueState();
-      if (saved) {
-        setQueue(saved.queue);
-        setRepeatMode(saved.repeatMode);
+      // 并行加载队列和进度
+      const [savedQueue, savedProgress] = await Promise.all([
+        loadQueueState(),
+        loadProgressFromStorage(),
+      ]);
+      
+      if (savedQueue) {
+        setQueue(savedQueue.queue);
+        setRepeatMode(savedQueue.repeatMode);
 
-        // 恢复当前播放歌曲（检查是否在队列中）
-        if (saved.currentTrackId) {
-          const track = saved.queue.find((t) => t.id === saved.currentTrackId);
-          if (track) {
-            setCurrentTrackState(track);
-            // 恢复播放进度
-            setTimeout(() => {
-              playerStore.dispatch({ type: "SEEK", position: saved.position });
-            }, 100);
+        // 恢复当前播放歌曲
+        let trackToRestore: QueuedTrack | null = null;
+        let positionToRestore = 0;
+        
+        if (savedProgress) {
+          // 优先使用 progressStorage 的进度
+          trackToRestore = savedQueue.queue.find((t) => t.id === savedProgress.trackId) || null;
+          positionToRestore = validateProgressPosition(savedProgress.position, savedProgress.duration);
+          console.log(`[PlayerContext] Restoring from progress storage: ${savedProgress.trackId} at ${Math.floor(positionToRestore/1000)}s`);
+        } else if (savedQueue.currentTrackId) {
+          // 回退到 queueStorage
+          trackToRestore = savedQueue.queue.find((t) => t.id === savedQueue.currentTrackId) || null;
+          positionToRestore = savedQueue.position;
+        }
+        
+        if (trackToRestore) {
+          setCurrentTrackState(trackToRestore);
+          
+          // 自动加载音频
+          setIsRestoring(true);
+          const result = await restoreAndLoadAudio(trackToRestore, positionToRestore);
+          if (result.success && result.track) {
+            setRestoredTrackMetadata({
+              title: result.track.title,
+              author: result.track.artist,
+              artwork: result.track.artwork,
+              duration: result.track.duration,
+              cid: trackToRestore.cid,
+            });
           }
+          setIsRestoring(false);
         }
 
         // 扫描下载目录并匹配已下载的歌曲（使用 cid 精确匹配）
@@ -171,7 +289,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         
         for (const file of downloadedFiles) {
           // 在队列中查找匹配的 track（根据 cid 精确匹配）
-          const matchedTrack = saved.queue.find((t) => t.cid === file.cid);
+          const matchedTrack = savedQueue.queue.find((t) => t.cid === file.cid);
           if (matchedTrack) {
             downloadedTrackIds.add(matchedTrack.id);
             console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id} (cid: ${file.cid})`);
@@ -258,7 +376,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (queue.length === 0) return null;
     if (currentTrackIndex === -1) {
       const firstTrack = queue[0];
-      setCurrentTrackState(firstTrack);
+      setCurrentTrack(firstTrack);
       return firstTrack;
     }
 
@@ -294,22 +412,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     if (nextTrack) {
-      setCurrentTrackState(nextTrack);
+      setCurrentTrack(nextTrack);
       if (repeatMode === "shuffle" && nextTrack.id !== currentTrack?.id) {
         setShuffleHistory((prev) => [...prev.slice(-49), nextTrack!.id]);
       }
     }
     return nextTrack;
-  }, [queue, currentTrackIndex, repeatMode, getRandomTrack, currentTrack]);
+  }, [queue, currentTrackIndex, repeatMode, getRandomTrack, currentTrack, setCurrentTrack]);
 
   // 自动播放下一首（用于播放完成后）
-  const handleAutoPlayNext = useCallback(() => {
-    const nextTrack = playNextTrack();
-    if (nextTrack) {
-      // 触发播放将在 player.tsx 中处理
-      // 这里只需要更新 currentTrack
-    }
-  }, [playNextTrack]);
+  // 注意：播放完成后的自动下一首逻辑已直接在 PlayerStore 订阅中处理
 
   // 手动点击下一首（不受单曲循环影响）
   const skipToNext = useCallback((): QueuedTrack | null => {
@@ -329,17 +441,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     const nextTrack = queue[nextIndex];
-    setCurrentTrackState(nextTrack);
+    setCurrentTrack(nextTrack);
     return nextTrack;
-  }, [queue, currentTrackIndex, repeatMode]);
+  }, [queue, currentTrackIndex, repeatMode, setCurrentTrack]);
 
   const playPreviousTrack = useCallback((): QueuedTrack | null => {
     if (!hasPreviousTrack) return null;
     const prevIndex = currentTrackIndex - 1;
     const prevTrack = queue[prevIndex];
-    setCurrentTrackState(prevTrack);
+    setCurrentTrack(prevTrack);
     return prevTrack;
-  }, [hasPreviousTrack, currentTrackIndex, queue]);
+  }, [hasPreviousTrack, currentTrackIndex, queue, setCurrentTrack]);
 
   const addTrack = useCallback(
     (
@@ -440,6 +552,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isTrackDownloaded,
         markTrackDownloaded,
         markTrackNotDownloaded,
+        isRestoring,
+        restoredTrackMetadata,
       }}
     >
       {children}

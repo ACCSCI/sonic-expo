@@ -14,6 +14,7 @@ import {
   deletePermanentAudio,
   isAudioPermanentlyDownloaded 
 } from '../../src/services/download';
+import { isAudioLoaded } from '../../src/services/audioLoader';
 import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { showToast } from '../../src/components/ToastConfig';
 
@@ -160,7 +161,8 @@ export default function PlayerScreen() {
     queue, removeTrack, currentTrack, setCurrentTrack,
     hasNextTrack, hasPreviousTrack, skipToNext, playPreviousTrack,
     repeatMode, toggleRepeatMode,
-    playerState, playerPosition, playerDuration, isPlaying
+    playerState, playerPosition, playerDuration, isPlaying,
+    isRestoring, restoredTrackMetadata
   } = usePlayer();
   
   const { isOnline } = useNetworkStatus();
@@ -197,6 +199,17 @@ export default function PlayerScreen() {
     };
     checkDownloaded();
   }, [queue]);
+
+  // 同步恢复的元数据到 videoInfo
+  useEffect(() => {
+    if (restoredTrackMetadata) {
+      setVideoInfo({
+        title: restoredTrackMetadata.title,
+        author: restoredTrackMetadata.author,
+        artwork: restoredTrackMetadata.artwork,
+      });
+    }
+  }, [restoredTrackMetadata]);
 
   // 获取歌曲音频路径（优先本地，其次网络）
   const getAudioPath = async (track: QueuedTrack): Promise<{ path: string; isLocal: boolean } | null> => {
@@ -318,7 +331,15 @@ export default function PlayerScreen() {
     if (playerState === 'playing') {
       await playerStore.dispatch({ type: 'PAUSE' });
     } else {
-      await playerStore.dispatch({ type: 'PLAY' });
+      // 检查音频是否已加载
+      if (!isAudioLoaded() && currentTrack) {
+        // 音频未加载，先加载当前歌曲
+        console.log('[Player] Audio not loaded, loading track first...');
+        await loadTrack(currentTrack);
+      } else {
+        // 音频已加载，直接播放
+        await playerStore.dispatch({ type: 'PLAY' });
+      }
     }
   };
 
@@ -460,8 +481,13 @@ export default function PlayerScreen() {
           <TouchableOpacity 
             style={styles.miniPlayerButton}
             onPress={(e) => { e.stopPropagation(); handleTogglePlay(); }}
+            disabled={isRestoring}
           >
-            <Text style={styles.miniPlayerButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+            {isRestoring ? (
+              <ActivityIndicator size="small" color="#3B82F6" />
+            ) : (
+              <Text style={styles.miniPlayerButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </View>
@@ -533,24 +559,29 @@ export default function PlayerScreen() {
 
               <View style={styles.fullPlayerControls}>
                 <TouchableOpacity 
-                  style={[styles.fullPlayerControlButton, !hasPreviousTrack && styles.buttonDisabled]}
+                  style={[styles.fullPlayerControlButton, (!hasPreviousTrack || isLoading || isRestoring) && styles.buttonDisabled]}
                   onPress={handlePreviousTrack}
-                  disabled={!hasPreviousTrack}
+                  disabled={!hasPreviousTrack || isLoading || isRestoring}
                 >
                   <Text style={styles.fullPlayerControlButtonText}>⏮</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
-                  style={styles.fullPlayerPlayButton}
+                  style={[styles.fullPlayerPlayButton, (isLoading || isRestoring) && styles.buttonDisabled]}
                   onPress={handleTogglePlay}
+                  disabled={isLoading || isRestoring}
                 >
-                  <Text style={styles.fullPlayerPlayButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+                  {isRestoring ? (
+                    <ActivityIndicator size="large" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.fullPlayerPlayButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+                  )}
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
-                  style={[styles.fullPlayerControlButton, !hasNextTrack && styles.buttonDisabled]}
+                  style={[styles.fullPlayerControlButton, (!hasNextTrack || isLoading || isRestoring) && styles.buttonDisabled]}
                   onPress={() => handleNextTrack()}
-                  disabled={!hasNextTrack}
+                  disabled={!hasNextTrack || isLoading || isRestoring}
                 >
                   <Text style={styles.fullPlayerControlButtonText}>⏭</Text>
                 </TouchableOpacity>
