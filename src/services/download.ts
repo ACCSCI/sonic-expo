@@ -1,10 +1,13 @@
-import { cacheDirectory } from 'expo-file-system/legacy';
+import { cacheDirectory, documentDirectory } from 'expo-file-system/legacy';
 import { File, Paths } from 'expo-file-system';
 
 // 最大重试次数
 const MAX_RETRIES = 3;
 // 重试延迟（毫秒）
 const RETRY_DELAY = 1000;
+
+// 永久存储目录（已下载的歌曲）
+const DOWNLOAD_DIR = 'downloads';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -60,10 +63,13 @@ async function downloadWithRetry(
   }
 }
 
-export async function downloadAudioToFile(
+// ============================================
+// 缓存目录（临时播放）
+// ============================================
+
+export async function downloadAudioToCache(
   audioUrl: string, 
   filename: string,
-  onProgress?: (progress: number) => void,
   forceDownload: boolean = false
 ): Promise<{ success: boolean; localPath?: string; error?: string }> {
   try {
@@ -78,7 +84,7 @@ export async function downloadAudioToFile(
     const destFile = new File(Paths.cache, `${filename}.m4s`);
     const localPath = destFile.uri;
     
-    // 如果不是强制下载，检查缓存文件是否存在且有效 (File.size 返回文件大小，不存在时返回 0)
+    // 如果不是强制下载，检查缓存文件是否存在且有效
     if (!forceDownload && destFile.exists && destFile.size > 1024) {
       console.log('使用缓存文件:', localPath, '大小:', destFile.size);
       return {
@@ -97,7 +103,7 @@ export async function downloadAudioToFile(
       }
     }
     
-    console.log('开始下载音频到:', localPath);
+    console.log('开始下载音频到缓存:', localPath);
     
     // 使用重试机制下载
     const downloadResult = await downloadWithRetry(audioUrl);
@@ -112,18 +118,15 @@ export async function downloadAudioToFile(
     // 写入文件
     await destFile.write(downloadResult.data);
     
-    // 重新读取文件信息以获取更新后的 size
-    const finalSize = destFile.size;
-    
     // 验证文件是否写入成功
-    if (!destFile.exists || finalSize === 0) {
+    if (!destFile.exists || destFile.size === 0) {
       return {
         success: false,
         error: '文件写入失败',
       };
     }
     
-    console.log('写入完成, 本地路径:', destFile.uri, '文件大小:', finalSize);
+    console.log('写入完成, 本地路径:', destFile.uri, '文件大小:', destFile.size);
     return {
       success: true,
       localPath: destFile.uri,
@@ -137,15 +140,136 @@ export async function downloadAudioToFile(
   }
 }
 
+// 兼容旧函数名
+export async function downloadAudioToFile(
+  audioUrl: string, 
+  filename: string,
+  onProgress?: (progress: number) => void,
+  forceDownload: boolean = false
+): Promise<{ success: boolean; localPath?: string; error?: string }> {
+  return downloadAudioToCache(audioUrl, filename, forceDownload);
+}
+
+// ============================================
+// 永久存储目录（已下载的歌曲）
+// ============================================
+
+export async function downloadToPermanentStorage(
+  audioUrl: string,
+  filename: string
+): Promise<{ success: boolean; localPath?: string; error?: string }> {
+  try {
+    if (!audioUrl || audioUrl.length < 10) {
+      return {
+        success: false,
+        error: '音频 URL 无效',
+      };
+    }
+
+    // 确保下载目录存在（使用 Paths.document 直接创建文件，目录会自动创建）
+
+    const destFile = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
+    
+    console.log('开始下载音频到永久存储:', destFile.uri);
+    
+    const downloadResult = await downloadWithRetry(audioUrl);
+    
+    if (!downloadResult.success || !downloadResult.data) {
+      return {
+        success: false,
+        error: downloadResult.error || '下载失败',
+      };
+    }
+    
+    await destFile.write(downloadResult.data);
+    
+    if (!destFile.exists || destFile.size === 0) {
+      return {
+        success: false,
+        error: '文件写入失败',
+      };
+    }
+    
+    console.log('永久存储写入完成:', destFile.uri, '文件大小:', destFile.size);
+    return {
+      success: true,
+      localPath: destFile.uri,
+    };
+  } catch (error) {
+    console.error('永久存储下载异常:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '下载错误',
+    };
+  }
+}
+
+export async function isAudioPermanentlyDownloaded(filename: string): Promise<boolean> {
+  try {
+    const file = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
+    return file.exists && file.size > 1024;
+  } catch {
+    return false;
+  }
+}
+
+export async function getPermanentAudioPath(filename: string): Promise<string | null> {
+  try {
+    const file = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
+    if (file.exists && file.size > 1024) {
+      return file.uri;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function deletePermanentAudio(filename: string): Promise<boolean> {
+  try {
+    const file = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
+    if (file.exists) {
+      await file.delete();
+      console.log('已删除永久存储音频:', file.uri);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('删除永久存储音频异常:', error);
+    return false;
+  }
+}
+
+// 获取所有已下载的文件列表
+export async function getAllDownloadedFiles(): Promise<{ filename: string; path: string; size: number }[]> {
+  try {
+    const downloadDir = new File(Paths.document, DOWNLOAD_DIR);
+    if (!downloadDir.exists) {
+      return [];
+    }
+
+    const files: { filename: string; path: string; size: number }[] = [];
+    // File 类没有直接的读取目录方法，需要其他方式
+    // 这里简化处理，实际使用时需要遍历目录
+    return files;
+  } catch {
+    return [];
+  }
+}
+
+// ============================================
+// 缓存目录辅助函数（保留用于兼容）
+// ============================================
+
 export async function deleteLocalAudio(filename: string): Promise<void> {
   try {
     const file = new File(Paths.cache, `${filename}.m4s`);
     if (file.exists) {
       await file.delete();
-      console.log('已删除本地音频:', file.uri);
+      console.log('已删除缓存音频:', file.uri);
     }
   } catch (error) {
-    console.log('删除本地音频异常:', error);
+    console.log('删除缓存音频异常:', error);
   }
 }
 
@@ -154,10 +278,6 @@ export function getCachePath(): string {
 }
 
 export async function isAudioDownloaded(filename: string): Promise<boolean> {
-  try {
-    const file = new File(Paths.cache, `${filename}.m4s`);
-    return file.exists && file.size > 1024;
-  } catch {
-    return false;
-  }
+  // 向后兼容，检查永久存储
+  return isAudioPermanentlyDownloaded(filename);
 }

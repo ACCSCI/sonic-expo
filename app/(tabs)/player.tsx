@@ -1,10 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Image, Pressable, Modal, Animated, Dimensions } from 'react-native';
+import { 
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, 
+  Image, Pressable, Modal, Animated, Dimensions, Alert 
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePlayer, QueuedTrack } from '../../src/context/PlayerContext';
 import { getVideoInfo, getAudioUrl } from '../../src/services/bilibili';
 import { playerStore, Track } from '../../src/services/PlayerStore';
-import { downloadAudioToFile, deleteLocalAudio, isAudioDownloaded } from '../../src/services/download';
+import { 
+  downloadAudioToCache, 
+  downloadToPermanentStorage,
+  getPermanentAudioPath,
+  deletePermanentAudio,
+  isAudioPermanentlyDownloaded 
+} from '../../src/services/download';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { showToast } from '../../src/components/ToastConfig';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -21,27 +31,16 @@ function ScrollingText({ text, style }: { text: string; style: any }) {
       translateX.setValue(0);
       return;
     }
-
     const distance = textWidth.current - containerWidth.current + 20;
     const duration = (distance / 50) * 1000;
-
     animationRef.current = Animated.loop(
       Animated.sequence([
-        Animated.timing(translateX, {
-          toValue: -distance,
-          duration,
-          useNativeDriver: true,
-        }),
+        Animated.timing(translateX, { toValue: -distance, duration, useNativeDriver: true }),
         Animated.delay(1000),
-        Animated.timing(translateX, {
-          toValue: 0,
-          duration,
-          useNativeDriver: true,
-        }),
+        Animated.timing(translateX, { toValue: 0, duration, useNativeDriver: true }),
         Animated.delay(1000),
       ])
     );
-
     animationRef.current.start();
   }, [translateX]);
 
@@ -54,28 +53,109 @@ function ScrollingText({ text, style }: { text: string; style: any }) {
   }, [startAnimation, text]);
 
   return (
-    <View 
-      style={style}
-      onLayout={(e) => {
-        containerWidth.current = e.nativeEvent.layout.width;
-        startAnimation();
-      }}
-    >
-      <Animated.View
-        style={{ transform: [{ translateX }] }}
-        onLayout={(e) => {
-          textWidth.current = e.nativeEvent.layout.width;
-          startAnimation();
-        }}
-      >
+    <View style={style} onLayout={(e) => { containerWidth.current = e.nativeEvent.layout.width; startAnimation(); }}>
+      <Animated.View style={{ transform: [{ translateX }] }} onLayout={(e) => { textWidth.current = e.nativeEvent.layout.width; startAnimation(); }}>
         <Text style={style} numberOfLines={1}>{text}</Text>
       </Animated.View>
     </View>
   );
 }
 
+// 队列项组件
+function QueueItem({ 
+  track, 
+  index, 
+  isCurrent, 
+  isPlaying, 
+  isLoading,
+  downloadStatus,
+  isOffline,
+  onPlay,
+  onDownload,
+  onDelete,
+  onRemove 
+}: {
+  track: QueuedTrack;
+  index: number;
+  isCurrent: boolean;
+  isPlaying: boolean;
+  isLoading: boolean;
+  downloadStatus: 'none' | 'downloading' | 'downloaded';
+  isOffline: boolean;
+  onPlay: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onRemove: () => void;
+}) {
+  const canPlay = !isOffline || downloadStatus === 'downloaded';
+  
+  return (
+    <View style={[styles.trackCard, isCurrent && styles.trackCardActive, !canPlay && styles.trackCardOffline]}>
+      <View style={styles.trackInfo}>
+        <Text style={[styles.trackIndex, !canPlay && styles.textOffline]}>{index + 1}</Text>
+        <View style={styles.trackDetail}>
+          <Text style={[styles.trackTitle, !canPlay && styles.textOffline]} numberOfLines={2}>
+            {track.title || track.bvid}
+          </Text>
+          <Text style={[styles.trackAuthor, !canPlay && styles.textOffline]} numberOfLines={1}>
+            {track.author || '未知UP主'}
+          </Text>
+          <Text style={[styles.trackPage, !canPlay && styles.textOffline]}>分P: {track.page}</Text>
+        </View>
+      </View>
+      
+      <View style={styles.trackActions}>
+        {/* 下载按钮 */}
+        <TouchableOpacity
+          style={[
+            styles.iconButton,
+            downloadStatus === 'downloaded' && styles.iconButtonDownloaded,
+            downloadStatus === 'downloading' && styles.iconButtonLoading
+          ]}
+          onPress={downloadStatus === 'downloaded' ? onDelete : onDownload}
+          disabled={downloadStatus === 'downloading'}
+        >
+          {downloadStatus === 'downloading' ? (
+            <ActivityIndicator size="small" color="#3B82F6" />
+          ) : (
+            <Text style={styles.iconButtonText}>
+              {downloadStatus === 'downloaded' ? '✓' : '⬇️'}
+            </Text>
+          )}
+        </TouchableOpacity>
+
+        {/* 播放按钮 */}
+        <TouchableOpacity
+          style={[
+            styles.playButton, 
+            isLoading && styles.buttonDisabled,
+            isCurrent && isPlaying && styles.playingButton,
+            !canPlay && styles.buttonOffline
+          ]}
+          onPress={onPlay}
+          disabled={isLoading || !canPlay}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.playButtonText}>
+              {!canPlay ? '无网' :
+               isCurrent && isPlaying ? '播放中' : 
+               isCurrent && !isPlaying ? '继续' : '播放'}
+            </Text>
+          )}
+        </TouchableOpacity>
+        
+        {/* 删除按钮 */}
+        <TouchableOpacity style={styles.deleteButton} onPress={onRemove}>
+          <Text style={styles.deleteButtonText}>删除</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 export default function PlayerScreen() {
-  // 从 Context 获取队列和播放器状态
   const { 
     queue, removeTrack, currentTrack, setCurrentTrack,
     hasNextTrack, hasPreviousTrack, skipToNext, playPreviousTrack,
@@ -83,120 +163,151 @@ export default function PlayerScreen() {
     playerState, playerPosition, playerDuration, isPlaying
   } = usePlayer();
   
+  const { isOnline } = useNetworkStatus();
+  
   // 本地状态
   const [isLoading, setIsLoading] = useState(false);
   const [videoInfo, setVideoInfo] = useState<{ title: string; author: string; artwork: string } | null>(null);
-  const [currentAudioPath, setCurrentAudioPath] = useState<string | null>(null);
   const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [isDownloaded, setIsDownloaded] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(new Set());
+  const [downloadingTracks, setDownloadingTracks] = useState<Set<string>>(new Set());
   
-  // Refs
   const isInitialized = useRef(false);
-
-  const addDebugLog = (log: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setDebugLogs(prev => [...prev.slice(-49), `[${timestamp}] ${log}`]);
-  };
 
   // 初始化播放器
   useEffect(() => {
     const init = async () => {
       const success = await playerStore.initialize();
       isInitialized.current = success;
-      if (!success) {
-        showToast.error('初始化失败', '无法初始化音频播放器');
-      }
+      if (!success) showToast.error('初始化失败', '无法初始化音频播放器');
     };
     init();
   }, []);
 
-  // 监听 currentTrack 变化，自动加载新歌曲并检查下载状态
+  // 检查所有歌曲的下载状态
   useEffect(() => {
-    if (!currentTrack || !isInitialized.current) return;
-    
-    // 检查是否已下载
     const checkDownloaded = async () => {
-      const downloaded = await isAudioDownloaded(`audio_${currentTrack.bvid}_${currentTrack.page}`);
-      setIsDownloaded(downloaded);
+      const newDownloaded = new Set<string>();
+      for (const track of queue) {
+        const isDownloaded = await isAudioPermanentlyDownloaded(`audio_${track.bvid}_${track.page}`);
+        if (isDownloaded) newDownloaded.add(track.id);
+      }
+      setDownloadedTracks(newDownloaded);
     };
     checkDownloaded();
-    
-    // 触发加载
-    loadTrack(currentTrack);
-  }, [currentTrack?.id]);
+  }, [queue]);
 
-  // 加载歌曲
-  const loadTrack = async (track: QueuedTrack) => {
+  // 获取歌曲音频路径（优先本地，其次网络）
+  const getAudioPath = async (track: QueuedTrack): Promise<{ path: string; isLocal: boolean } | null> => {
+    // 1. 先检查永久存储（已下载）
+    const permanentPath = await getPermanentAudioPath(`audio_${track.bvid}_${track.page}`);
+    if (permanentPath) {
+      return { path: permanentPath, isLocal: true };
+    }
+    
+    // 2. 检查缓存（之前播放过）
+    // 这里简化处理，实际应该从缓存读取
+    
+    // 3. 没有本地文件，需要下载
+    return null;
+  };
+
+  // 加载并播放歌曲
+  const loadTrack = async (track: QueuedTrack, autoSkipOnError: boolean = false) => {
     if (isLoading) return;
     
+    // 离线检查
+    if (!isOnline) {
+      const isDownloaded = downloadedTracks.has(track.id);
+      if (!isDownloaded) {
+        showToast.info('离线状态', '该歌曲未下载，无法播放');
+        if (autoSkipOnError && hasNextTrack) {
+          // 自动跳过未下载的歌曲
+          setTimeout(() => handleNextTrack(true), 500);
+        }
+        return;
+      }
+    }
+    
     setIsLoading(true);
-    setVideoInfo(null);
-    addDebugLog(`开始加载: ${track.bvid}`);
+    setCurrentTrack(track);
 
     try {
-      // 获取视频信息
-      const videoResult = await getVideoInfo(track.bvid);
-      if (!videoResult.success || !videoResult.video) {
-        showToast.error('获取视频信息失败', videoResult.error || '未知错误');
-        setIsLoading(false);
-        return;
-      }
-
-      const video = videoResult.video;
-      setVideoInfo({
-        title: video.title,
-        author: video.author,
-        artwork: video.pic,
-      });
-
-      // 获取 CID
-      let cid = video.cid;
-      if (video.pages.length > 0) {
-        const partIndex = Math.min(track.page - 1, video.pages.length - 1);
-        cid = video.pages[partIndex].cid;
-      }
-
-      // 获取音频 URL
-      const audioResult = await getAudioUrl(cid, video.bvid);
-      if (!audioResult.success || !audioResult.url) {
-        showToast.error('获取音频失败', audioResult.error || '未知错误');
-        setIsLoading(false);
-        return;
-      }
-
-      // 下载音频
-      addDebugLog('下载音频中...');
-      const downloadResult = await downloadAudioToFile(audioResult.url, `audio_${video.bvid}_${cid}`);
+      // 检查本地文件
+      const localAudio = await getAudioPath(track);
       
-      if (!downloadResult.success || !downloadResult.localPath) {
-        showToast.error('下载失败', downloadResult.error || '无法下载音频');
-        setIsLoading(false);
-        return;
+      if (localAudio) {
+        // 使用本地文件播放
+        const trackData: Track = {
+          id: track.id,
+          url: localAudio.path,
+          title: track.title || track.bvid,
+          artist: track.author || '未知UP主',
+          artwork: '', // 本地文件没有封面
+          duration: 0,
+        };
+        await playerStore.dispatch({ type: 'LOAD', track: trackData });
+        showToast.success('开始播放', track.title || track.bvid);
+      } else {
+        // 需要下载
+        const videoResult = await getVideoInfo(track.bvid);
+        if (!videoResult.success || !videoResult.video) {
+          showToast.error('获取视频信息失败', videoResult.error || '未知错误');
+          setIsLoading(false);
+          if (autoSkipOnError && hasNextTrack) {
+            setTimeout(() => handleNextTrack(true), 500);
+          }
+          return;
+        }
+
+        const video = videoResult.video;
+        setVideoInfo({ title: video.title, author: video.author, artwork: video.pic });
+
+        let cid = video.cid;
+        if (video.pages.length > 0) {
+          cid = video.pages[Math.min(track.page - 1, video.pages.length - 1)].cid;
+        }
+
+        const audioResult = await getAudioUrl(cid, video.bvid);
+        if (!audioResult.success || !audioResult.url) {
+          showToast.error('获取音频失败', audioResult.error || '未知错误');
+          setIsLoading(false);
+          if (autoSkipOnError && hasNextTrack) {
+            setTimeout(() => handleNextTrack(true), 500);
+          }
+          return;
+        }
+
+        // 下载到缓存并播放
+        const downloadResult = await downloadAudioToCache(audioResult.url, `audio_${video.bvid}_${cid}`);
+        if (!downloadResult.success || !downloadResult.localPath) {
+          showToast.error('下载失败', downloadResult.error || '无法下载音频');
+          setIsLoading(false);
+          if (autoSkipOnError && hasNextTrack) {
+            setTimeout(() => handleNextTrack(true), 500);
+          }
+          return;
+        }
+
+        const trackData: Track = {
+          id: track.id,
+          url: downloadResult.localPath,
+          title: video.title,
+          artist: video.author,
+          artwork: video.pic,
+          duration: video.duration,
+        };
+
+        await playerStore.dispatch({ type: 'LOAD', track: trackData });
+        showToast.success('开始播放', video.title);
       }
-
-      setCurrentAudioPath(downloadResult.localPath);
-      setIsDownloaded(true);
-      addDebugLog(`下载完成: ${downloadResult.localPath}`);
-
-      // 加载到播放器
-      const trackData: Track = {
-        id: track.id,
-        url: downloadResult.localPath,
-        title: video.title,
-        artist: video.author,
-        artwork: video.pic,
-        duration: video.duration,
-      };
-
-      await playerStore.dispatch({ type: 'LOAD', track: trackData });
-      showToast.success('开始播放', video.title);
-      
     } catch (error) {
       console.error('Load track error:', error);
       showToast.error('加载失败', error instanceof Error ? error.message : '未知错误');
+      if (autoSkipOnError && hasNextTrack) {
+        setTimeout(() => handleNextTrack(true), 500);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -211,11 +322,11 @@ export default function PlayerScreen() {
     }
   };
 
-  const handleNextTrack = async () => {
+  const handleNextTrack = async (autoSkip: boolean = false) => {
     if (!hasNextTrack) return;
     const nextTrack = skipToNext();
     if (nextTrack) {
-      setCurrentTrack(nextTrack);
+      await loadTrack(nextTrack, autoSkip);
     }
   };
 
@@ -223,87 +334,85 @@ export default function PlayerScreen() {
     if (!hasPreviousTrack) return;
     const prevTrack = playPreviousTrack();
     if (prevTrack) {
-      setCurrentTrack(prevTrack);
+      await loadTrack(prevTrack);
     }
   };
 
   const handleSeek = async (event: any) => {
     if (playerDuration === 0) return;
-    
     const { locationX } = event.nativeEvent;
     const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
     const newPosition = Math.floor(playerDuration * ratio);
-    
     await playerStore.dispatch({ type: 'SEEK', position: newPosition });
   };
 
-  // 下载当前歌曲到本地
-  const handleDownload = async () => {
-    if (!currentTrack || !videoInfo || isDownloading) return;
+  // 下载管理
+  const handleDownload = async (track: QueuedTrack) => {
+    if (downloadingTracks.has(track.id)) return;
     
-    setIsDownloading(true);
-    addDebugLog('开始下载到本地...');
+    setDownloadingTracks(prev => new Set(prev).add(track.id));
     
     try {
-      // 获取音频URL（复用现有逻辑）
-      const videoResult = await getVideoInfo(currentTrack.bvid);
+      const videoResult = await getVideoInfo(track.bvid);
       if (!videoResult.success || !videoResult.video) {
         showToast.error('获取视频信息失败', videoResult.error || '未知错误');
-        setIsDownloading(false);
         return;
       }
       
       const video = videoResult.video;
       let cid = video.cid;
       if (video.pages.length > 0) {
-        const partIndex = Math.min(currentTrack.page - 1, video.pages.length - 1);
-        cid = video.pages[partIndex].cid;
+        cid = video.pages[Math.min(track.page - 1, video.pages.length - 1)].cid;
       }
       
       const audioResult = await getAudioUrl(cid, video.bvid);
       if (!audioResult.success || !audioResult.url) {
         showToast.error('获取音频失败', audioResult.error || '未知错误');
-        setIsDownloading(false);
         return;
       }
       
-      // 强制下载（绕过缓存）
-      const downloadResult = await downloadAudioToFile(
-        audioResult.url, 
-        `audio_${video.bvid}_${cid}`,
-        undefined,
-        true
-      );
+      const downloadResult = await downloadToPermanentStorage(audioResult.url, `audio_${video.bvid}_${cid}`);
       
       if (downloadResult.success) {
-        setIsDownloaded(true);
+        setDownloadedTracks(prev => new Set(prev).add(track.id));
         showToast.success('下载完成', '歌曲已保存到本地');
-        addDebugLog('下载完成');
       } else {
         showToast.error('下载失败', downloadResult.error || '无法下载音频');
       }
     } catch (error) {
-      console.error('Download error:', error);
       showToast.error('下载失败', error instanceof Error ? error.message : '未知错误');
     } finally {
-      setIsDownloading(false);
+      setDownloadingTracks(prev => {
+        const next = new Set(prev);
+        next.delete(track.id);
+        return next;
+      });
     }
   };
 
-  // 删除已下载的文件
-  const handleDeleteDownload = async () => {
-    if (!currentTrack) return;
-    
-    const filename = `audio_${currentTrack.bvid}_${currentTrack.page}`;
-    await deleteLocalAudio(filename);
-    setIsDownloaded(false);
-    showToast.success('已删除', '本地文件已删除');
-    addDebugLog('删除本地文件');
-  };
-
-  // 从列表播放指定歌曲
-  const handlePlayFromList = (track: QueuedTrack) => {
-    setCurrentTrack(track);
+  const handleDeleteDownload = (track: QueuedTrack) => {
+    Alert.alert(
+      '确认删除',
+      `确定要删除 "${track.title || track.bvid}" 的本地文件吗？`,
+      [
+        { text: '取消', style: 'cancel' },
+        { 
+          text: '删除', 
+          style: 'destructive',
+          onPress: async () => {
+            const success = await deletePermanentAudio(`audio_${track.bvid}_${track.page}`);
+            if (success) {
+              setDownloadedTracks(prev => {
+                const next = new Set(prev);
+                next.delete(track.id);
+                return next;
+              });
+              showToast.success('已删除', '本地文件已删除');
+            }
+          }
+        }
+      ]
+    );
   };
 
   // 格式化时间
@@ -314,7 +423,6 @@ export default function PlayerScreen() {
     return `${mins}:${remainingSecs.toString().padStart(2, '0')}`;
   };
 
-  // 获取循环模式图标
   const getRepeatModeIcon = () => {
     switch (repeatMode) {
       case 'off': return '➡️';
@@ -327,7 +435,7 @@ export default function PlayerScreen() {
 
   // 迷你播放器
   const renderMiniPlayer = () => {
-    if (!currentTrack || !videoInfo) return null;
+    if (!currentTrack) return null;
     
     return (
       <View style={styles.miniPlayerContainer}>
@@ -336,27 +444,24 @@ export default function PlayerScreen() {
           onPress={() => setIsFullPlayerVisible(true)}
           activeOpacity={0.9}
         >
-          <Image
-            source={{ uri: videoInfo.artwork }}
-            style={styles.miniPlayerArtwork}
-            resizeMode="cover"
-          />
+          <View style={[styles.miniPlayerArtwork, !videoInfo?.artwork && styles.miniPlayerArtworkPlaceholder]}>
+            {videoInfo?.artwork ? (
+              <Image source={{ uri: videoInfo.artwork }} style={styles.miniPlayerArtworkImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.miniPlayerArtworkText}>🎵</Text>
+            )}
+          </View>
           <View style={styles.miniPlayerInfo}>
             <ScrollingText 
-              text={`${videoInfo.title} - ${videoInfo.author}`}
+              text={`${currentTrack.title || currentTrack.bvid} - ${currentTrack.author || '未知UP主'}`}
               style={styles.miniPlayerText}
             />
           </View>
           <TouchableOpacity 
             style={styles.miniPlayerButton}
-            onPress={(e) => {
-              e.stopPropagation();
-              handleTogglePlay();
-            }}
+            onPress={(e) => { e.stopPropagation(); handleTogglePlay(); }}
           >
-            <Text style={styles.miniPlayerButtonText}>
-              {isPlaying ? '⏸' : '▶'}
-            </Text>
+            <Text style={styles.miniPlayerButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
           </TouchableOpacity>
         </TouchableOpacity>
       </View>
@@ -365,7 +470,7 @@ export default function PlayerScreen() {
 
   // 完整播放器
   const renderFullPlayer = () => {
-    if (!videoInfo) return null;
+    if (!currentTrack) return null;
 
     return (
       <Modal
@@ -376,12 +481,14 @@ export default function PlayerScreen() {
       >
         <View style={styles.fullPlayerOverlay}>
           <View style={styles.fullPlayerContainer}>
-            <Image
-              source={{ uri: videoInfo.artwork }}
-              style={styles.fullPlayerBackground}
-              blurRadius={30}
-              resizeMode="cover"
-            />
+            {videoInfo?.artwork && (
+              <Image
+                source={{ uri: videoInfo.artwork }}
+                style={styles.fullPlayerBackground}
+                blurRadius={30}
+                resizeMode="cover"
+              />
+            )}
             <View style={styles.fullPlayerBackgroundOverlay} />
             
             <TouchableOpacity 
@@ -392,18 +499,20 @@ export default function PlayerScreen() {
             </TouchableOpacity>
 
             <View style={styles.fullPlayerContent}>
-              <Image
-                source={{ uri: videoInfo.artwork }}
-                style={styles.fullPlayerArtwork}
-                resizeMode="cover"
-              />
+              <View style={[styles.fullPlayerArtwork, !videoInfo?.artwork && styles.fullPlayerArtworkPlaceholder]}>
+                {videoInfo?.artwork ? (
+                  <Image source={{ uri: videoInfo.artwork }} style={styles.fullPlayerArtworkImage} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.fullPlayerArtworkText}>🎵</Text>
+                )}
+              </View>
 
               <View style={styles.fullPlayerInfo}>
                 <Text style={styles.fullPlayerTitle} numberOfLines={2}>
-                  {videoInfo.title}
+                  {currentTrack.title || currentTrack.bvid}
                 </Text>
                 <Text style={styles.fullPlayerArtist}>
-                  {videoInfo.author}
+                  {currentTrack.author || '未知UP主'}
                 </Text>
               </View>
 
@@ -414,12 +523,7 @@ export default function PlayerScreen() {
                   onLayout={(event) => setProgressBarWidth(event.nativeEvent.layout.width)}
                 >
                   <View style={styles.fullPlayerProgressTrack} />
-                  <View 
-                    style={[
-                      styles.fullPlayerProgressFill, 
-                      { width: `${(playerPosition / playerDuration) * 100 || 0}%` }
-                    ]} 
-                  />
+                  <View style={[styles.fullPlayerProgressFill, { width: `${(playerPosition / playerDuration) * 100 || 0}%` }]} />
                 </Pressable>
                 <View style={styles.fullPlayerTimeRow}>
                   <Text style={styles.fullPlayerTimeText}>{formatTime(playerPosition)}</Text>
@@ -440,14 +544,12 @@ export default function PlayerScreen() {
                   style={styles.fullPlayerPlayButton}
                   onPress={handleTogglePlay}
                 >
-                  <Text style={styles.fullPlayerPlayButtonText}>
-                    {isPlaying ? '⏸' : '▶'}
-                  </Text>
+                  <Text style={styles.fullPlayerPlayButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
                   style={[styles.fullPlayerControlButton, !hasNextTrack && styles.buttonDisabled]}
-                  onPress={handleNextTrack}
+                  onPress={() => handleNextTrack()}
                   disabled={!hasNextTrack}
                 >
                   <Text style={styles.fullPlayerControlButtonText}>⏭</Text>
@@ -455,25 +557,6 @@ export default function PlayerScreen() {
               </View>
 
               <View style={styles.bottomControlsContainer}>
-                {/* 下载按钮 */}
-                <TouchableOpacity 
-                  style={[
-                    styles.downloadButton, 
-                    isDownloading && styles.downloadButtonLoading
-                  ]}
-                  onPress={isDownloaded ? handleDeleteDownload : handleDownload}
-                  disabled={isDownloading}
-                >
-                  {isDownloading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.downloadButtonIcon}>
-                      {isDownloaded ? '✓' : '⬇️'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                {/* 循环模式按钮 */}
                 <TouchableOpacity 
                   style={styles.repeatModeButton}
                   onPress={toggleRepeatMode}
@@ -490,19 +573,15 @@ export default function PlayerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* 网络状态提示 */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>⚠️ 离线模式 - 仅可播放已下载歌曲</Text>
+        </View>
+      )}
+      
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <Text style={styles.title}>播放列表</Text>
-
-        {debugLogs.length > 0 && (
-          <View style={styles.debugCard}>
-            <Text style={styles.debugTitle}>调试日志</Text>
-            <ScrollView style={styles.debugScroll} nestedScrollEnabled>
-              {debugLogs.map((log, index) => (
-                <Text key={index} style={styles.debugText}>{log}</Text>
-              ))}
-            </ScrollView>
-          </View>
-        )}
         
         {queue.length === 0 ? (
           <View style={styles.emptyCard}>
@@ -511,48 +590,22 @@ export default function PlayerScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-            <Text style={styles.listTitle}>队列 ({queue.length})</Text>
+            <Text style={styles.listTitle}>队列 ({queue.length}) {isOnline ? '' : '- 仅显示可播放'}</Text>
             {queue.map((track, index) => (
-              <View key={track.id} style={styles.trackCard}>
-                <View style={styles.trackInfo}>
-                  <Text style={styles.trackIndex}>{index + 1}</Text>
-                  <View style={styles.trackDetail}>
-                    <Text style={styles.trackTitle} numberOfLines={2}>
-                      {track.title || track.bvid}
-                    </Text>
-                    <Text style={styles.trackAuthor} numberOfLines={1}>
-                      {track.author || '未知UP主'}
-                    </Text>
-                    <Text style={styles.trackPage}>分P: {track.page}</Text>
-                  </View>
-                </View>
-                <View style={styles.trackActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.playButton, 
-                      (isLoading && currentTrack?.id === track.id) && styles.buttonDisabled,
-                      currentTrack?.id === track.id && isPlaying && styles.playingButton
-                    ]}
-                    onPress={() => handlePlayFromList(track)}
-                    disabled={isLoading && currentTrack?.id === track.id}
-                  >
-                    {isLoading && currentTrack?.id === track.id ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.playButtonText}>
-                        {currentTrack?.id === track.id && isPlaying ? '播放中' : 
-                         currentTrack?.id === track.id && !isPlaying ? '继续' : '播放'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => removeTrack(track.id)}
-                  >
-                    <Text style={styles.deleteButtonText}>删除</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <QueueItem
+                key={track.id}
+                track={track}
+                index={index}
+                isCurrent={currentTrack?.id === track.id}
+                isPlaying={isPlaying}
+                isLoading={isLoading && currentTrack?.id === track.id}
+                downloadStatus={downloadedTracks.has(track.id) ? 'downloaded' : downloadingTracks.has(track.id) ? 'downloading' : 'none'}
+                isOffline={!isOnline}
+                onPlay={() => loadTrack(track)}
+                onDownload={() => handleDownload(track)}
+                onDelete={() => handleDeleteDownload(track)}
+                onRemove={() => removeTrack(track.id)}
+              />
             ))}
           </View>
         )}
@@ -566,261 +619,88 @@ export default function PlayerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F3F4F6' },
+  offlineBanner: { backgroundColor: '#F59E0B', padding: 8, alignItems: 'center' },
+  offlineBannerText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
   scrollView: { flex: 1 },
   content: { padding: 16, paddingBottom: 100 },
   title: { fontSize: 24, fontWeight: 'bold', color: '#111827', marginBottom: 16 },
   
-  // 迷你播放器
-  miniPlayerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 8,
-    backgroundColor: 'transparent',
-  },
-  miniPlayer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 25,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 10,
-  },
-  miniPlayerArtwork: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E5E7EB',
-  },
-  miniPlayerInfo: {
-    flex: 1,
-    marginHorizontal: 12,
-    overflow: 'hidden',
-  },
-  miniPlayerText: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '500',
-  },
-  miniPlayerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#3B82F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniPlayerButtonText: {
-    fontSize: 18,
-    color: '#FFFFFF',
-  },
-  
-  // 完整播放器
-  fullPlayerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  fullPlayerContainer: {
-    height: '100%',
-    backgroundColor: '#000000',
-    overflow: 'hidden',
-  },
-  fullPlayerBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0.6,
-  },
-  fullPlayerBackgroundOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 20,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  fullPlayerContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  fullPlayerArtwork: {
-    width: 280,
-    height: 280,
-    borderRadius: 16,
-    backgroundColor: '#374151',
-    marginBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  fullPlayerInfo: {
-    alignItems: 'center',
-    marginBottom: 40,
-    width: '100%',
-  },
-  fullPlayerTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  fullPlayerArtist: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    textAlign: 'center',
-  },
-  fullPlayerProgressContainer: {
-    width: '100%',
-    marginBottom: 40,
-  },
-  fullPlayerProgressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  fullPlayerProgressTrack: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  fullPlayerProgressFill: {
-    height: '100%',
-    backgroundColor: '#3B82F6',
-    borderRadius: 3,
-  },
-  fullPlayerTimeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  fullPlayerTimeText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-  },
-  fullPlayerControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fullPlayerPlayButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#3B82F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  fullPlayerPlayButtonText: {
-    fontSize: 36,
-    color: '#FFFFFF',
-  },
-  fullPlayerControlButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 16,
-  },
-  fullPlayerControlButtonText: {
-    fontSize: 24,
-    color: '#FFFFFF',
-  },
-  bottomControlsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 40,
-    marginTop: 20,
-  },
-  downloadButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  downloadButtonLoading: {
-    backgroundColor: 'rgba(59, 130, 246, 0.5)',
-  },
-  downloadButtonIcon: {
-    fontSize: 20,
-  },
-  repeatModeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  repeatModeIcon: {
-    fontSize: 20,
-  },
-  
-  // 列表样式
-  buttonDisabled: { opacity: 0.6 },
-  emptyCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 32, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
-  emptyText: { fontSize: 18, color: '#9CA3AF', marginBottom: 8 },
-  hint: { color: '#6B7280' },
-  list: { gap: 12 },
-  listTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8 },
-  trackCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  // 队列项
+  trackCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  trackCardActive: { borderColor: '#3B82F6', borderWidth: 2 },
+  trackCardOffline: { opacity: 0.6 },
   trackInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   trackIndex: { fontSize: 18, fontWeight: '600', color: '#3B82F6', width: 30 },
   trackDetail: { flex: 1 },
   trackTitle: { fontSize: 16, fontWeight: '500', color: '#111827', marginBottom: 2 },
   trackAuthor: { fontSize: 13, color: '#6B7280', marginBottom: 2 },
   trackPage: { fontSize: 12, color: '#9CA3AF' },
-  trackActions: { flexDirection: 'row', gap: 8 },
+  textOffline: { color: '#9CA3AF' },
+  trackActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  
+  // 图标按钮
+  iconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  iconButtonDownloaded: { backgroundColor: '#D1FAE5' },
+  iconButtonLoading: { backgroundColor: '#DBEAFE' },
+  iconButtonText: { fontSize: 16 },
+  
+  // 播放按钮
   playButton: { flex: 1, backgroundColor: '#3B82F6', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
   playingButton: { backgroundColor: '#10B981' },
+  buttonOffline: { backgroundColor: '#9CA3AF' },
   playButtonText: { color: '#FFFFFF', fontWeight: '600' },
-  deleteButton: { backgroundColor: '#EF4444', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16, alignItems: 'center' },
-  deleteButtonText: { color: '#FFFFFF', fontWeight: '600' },
-  debugCard: { backgroundColor: '#FEF3C7', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#F59E0B' },
-  debugTitle: { fontSize: 14, fontWeight: '600', color: '#92400E', marginBottom: 8 },
-  debugScroll: { maxHeight: 150, backgroundColor: '#FFFFFF', borderRadius: 8, padding: 8 },
-  debugText: { fontSize: 11, color: '#374151', marginBottom: 2 },
+  
+  // 删除按钮
+  deleteButton: { backgroundColor: '#EF4444', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center' },
+  deleteButtonText: { color: '#FFFFFF', fontWeight: '600', fontSize: 12 },
+  
+  // 通用
+  buttonDisabled: { opacity: 0.6 },
+  emptyCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 32, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  emptyText: { fontSize: 18, color: '#9CA3AF', marginBottom: 8 },
+  hint: { color: '#6B7280' },
+  list: { gap: 12 },
+  listTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  
+  // 迷你播放器
+  miniPlayerContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, backgroundColor: 'transparent' },
+  miniPlayer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 25, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
+  miniPlayerArtwork: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E5E7EB', overflow: 'hidden' },
+  miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  miniPlayerArtworkImage: { width: 40, height: 40 },
+  miniPlayerArtworkText: { fontSize: 20 },
+  miniPlayerInfo: { flex: 1, marginHorizontal: 12, overflow: 'hidden' },
+  miniPlayerText: { fontSize: 14, color: '#111827', fontWeight: '500' },
+  miniPlayerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center' },
+  miniPlayerButtonText: { fontSize: 18, color: '#FFFFFF' },
+  
+  // 完整播放器
+  fullPlayerOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
+  fullPlayerContainer: { height: '100%', backgroundColor: '#000000', overflow: 'hidden' },
+  fullPlayerBackground: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.6 },
+  fullPlayerBackgroundOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)' },
+  closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center' },
+  closeButtonText: { fontSize: 20, color: '#FFFFFF', fontWeight: '600' },
+  fullPlayerContent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  fullPlayerArtwork: { width: 280, height: 280, borderRadius: 16, backgroundColor: '#374151', marginBottom: 40, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
+  fullPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  fullPlayerArtworkImage: { width: 280, height: 280 },
+  fullPlayerArtworkText: { fontSize: 80 },
+  fullPlayerInfo: { alignItems: 'center', marginBottom: 40, width: '100%' },
+  fullPlayerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF', textAlign: 'center', marginBottom: 8 },
+  fullPlayerArtist: { fontSize: 16, color: '#9CA3AF', textAlign: 'center' },
+  fullPlayerProgressContainer: { width: '100%', marginBottom: 40 },
+  fullPlayerProgressBar: { height: 6, backgroundColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 3, overflow: 'hidden' },
+  fullPlayerProgressTrack: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255, 255, 255, 0.2)' },
+  fullPlayerProgressFill: { height: '100%', backgroundColor: '#3B82F6', borderRadius: 3 },
+  fullPlayerTimeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  fullPlayerTimeText: { fontSize: 13, color: '#9CA3AF' },
+  fullPlayerControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  fullPlayerPlayButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 },
+  fullPlayerPlayButtonText: { fontSize: 36, color: '#FFFFFF' },
+  fullPlayerControlButton: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 16 },
+  fullPlayerControlButtonText: { fontSize: 24, color: '#FFFFFF' },
+  bottomControlsContainer: { flexDirection: 'row', justifyContent: 'center', width: '100%', paddingHorizontal: 40, marginTop: 20 },
+  repeatModeButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255, 255, 255, 0.15)', alignItems: 'center', justifyContent: 'center' },
+  repeatModeIcon: { fontSize: 20 },
 });
