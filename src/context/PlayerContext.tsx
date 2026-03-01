@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
 import { playerStore, PlayerState } from '../services/PlayerStore';
+import { loadQueueState, saveQueueState } from '../storage/queueStorage';
 
 export type RepeatMode = 'off' | 'all' | 'one' | 'shuffle';
 
@@ -113,6 +114,40 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const setCurrentTrack = useCallback((track: QueuedTrack | null) => {
     setCurrentTrackState(track);
   }, []);
+
+  // 初始化：从存储加载队列状态
+  useEffect(() => {
+    const init = async () => {
+      const saved = await loadQueueState();
+      if (saved) {
+        setQueue(saved.queue);
+        setRepeatMode(saved.repeatMode);
+        
+        // 恢复当前播放歌曲（检查是否在队列中）
+        if (saved.currentTrackId) {
+          const track = saved.queue.find(t => t.id === saved.currentTrackId);
+          if (track) {
+            setCurrentTrackState(track);
+            // 恢复播放进度
+            setTimeout(() => {
+              playerStore.dispatch({ type: 'SEEK', position: saved.position });
+            }, 100);
+          }
+        }
+      }
+    };
+    init();
+  }, []);
+
+  // 保存队列状态到存储
+  useEffect(() => {
+    saveQueueState({
+      queue,
+      currentTrackId: currentTrack?.id || null,
+      position: playerPosition,
+      repeatMode,
+    });
+  }, [queue, currentTrack, playerPosition, repeatMode]);
 
   const currentTrackIndex = currentTrack 
     ? queue.findIndex(t => t.id === currentTrack.id) 

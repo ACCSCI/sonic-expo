@@ -1,6 +1,5 @@
 import { cacheDirectory, documentDirectory } from 'expo-file-system/legacy';
-import { File, Paths } from 'expo-file-system';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system';
 
 // 最大重试次数
 const MAX_RETRIES = 3;
@@ -168,11 +167,10 @@ export async function downloadToPermanentStorage(
     }
 
     // 确保下载目录存在
-    const downloadDir = `${documentDirectory}${DOWNLOAD_DIR}/`;
-    const dirInfo = await FileSystem.getInfoAsync(downloadDir);
-    if (!dirInfo.exists) {
-      console.log('创建下载目录:', downloadDir);
-      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+    const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
+    if (!downloadDir.exists) {
+      console.log('创建下载目录:', downloadDir.uri);
+      await downloadDir.create();
     }
 
     const destFile = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
