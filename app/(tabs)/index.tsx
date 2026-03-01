@@ -122,9 +122,22 @@ export default function ParseScreen() {
         ? videoResult.video.author 
         : undefined;
       
+      // 获取对应分P的cid
+      let cid = videoResult.success && videoResult.video 
+        ? String(videoResult.video.cid) 
+        : parsedResult.bvid;
+      
+      // 如果有分P，找到对应分P的cid
+      if (videoResult.success && videoResult.video?.pages && parsedResult.page > 1) {
+        const pageInfo = videoResult.video.pages.find(p => p.page === parsedResult.page);
+        if (pageInfo) {
+          cid = String(pageInfo.cid);
+        }
+      }
+      
       const fullUrl = parsedResult.fullUrl || `https://www.bilibili.com/video/${parsedResult.bvid}`;
       
-      addTrack(parsedResult.bvid, parsedResult.page, title, author, fullUrl);
+      addTrack(parsedResult.bvid, cid, parsedResult.page, title, author, fullUrl);
       
       showToast.success(
         '已添加到播放列表',
@@ -133,7 +146,7 @@ export default function ParseScreen() {
     } catch (error) {
       // 如果获取信息失败，仍然添加曲目但使用默认值
       const fullUrl = parsedResult.fullUrl || `https://www.bilibili.com/video/${parsedResult.bvid}`;
-      addTrack(parsedResult.bvid, parsedResult.page, undefined, undefined, fullUrl);
+      addTrack(parsedResult.bvid, parsedResult.bvid, parsedResult.page, undefined, undefined, fullUrl);
       
       showToast.success(
         '已添加到播放列表',

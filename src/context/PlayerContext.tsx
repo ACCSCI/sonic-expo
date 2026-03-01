@@ -19,6 +19,7 @@ export const REPEAT_MODES: RepeatMode[] = ["off", "all", "one", "shuffle"];
 export interface QueuedTrack {
   id: string;
   bvid: string;
+  cid: string;  // 添加 cid 用于精确匹配下载文件
   page: number;
   title?: string;
   author?: string;
@@ -30,6 +31,7 @@ export interface PlayerContextType {
   queue: QueuedTrack[];
   addTrack: (
     bvid: string,
+    cid: string,
     page: number,
     title?: string,
     author?: string,
@@ -163,16 +165,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // 扫描下载目录并匹配已下载的歌曲
+        // 扫描下载目录并匹配已下载的歌曲（使用 cid 精确匹配）
         const downloadedFiles = await getDownloadedFilesInfo();
         const downloadedTrackIds = new Set<string>();
         
         for (const file of downloadedFiles) {
-          // 在队列中查找匹配的 track（根据 bvid）
-          const matchedTrack = saved.queue.find((t) => t.bvid === file.bvid);
+          // 在队列中查找匹配的 track（根据 cid 精确匹配）
+          const matchedTrack = saved.queue.find((t) => t.cid === file.cid);
           if (matchedTrack) {
             downloadedTrackIds.add(matchedTrack.id);
-            console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id}`);
+            console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id} (cid: ${file.cid})`);
           }
         }
         
@@ -342,6 +344,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const addTrack = useCallback(
     (
       bvid: string,
+      cid: string,
       page: number,
       title?: string,
       author?: string,
@@ -356,6 +359,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             {
               id,
               bvid,
+              cid,
               page,
               fullUrl,
               title: title || `BV: ${bvid} P${page}`,
