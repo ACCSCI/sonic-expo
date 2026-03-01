@@ -152,3 +152,12 @@ export async function deleteLocalAudio(filename: string): Promise<void> {
 export function getCachePath(): string {
   return cacheDirectory || '';
 }
+
+export async function isAudioDownloaded(filename: string): Promise<boolean> {
+  try {
+    const file = new File(Paths.cache, `${filename}.m4s`);
+    return file.exists && file.size > 1024;
+  } catch {
+    return false;
+  }
+}

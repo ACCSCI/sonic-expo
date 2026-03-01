@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePlayer, QueuedTrack } from '../../src/context/PlayerContext';
 import { getVideoInfo, getAudioUrl } from '../../src/services/bilibili';
 import { playerStore, Track } from '../../src/services/PlayerStore';
-import { downloadAudioToFile, deleteLocalAudio } from '../../src/services/download';
+import { downloadAudioToFile, deleteLocalAudio, isAudioDownloaded } from '../../src/services/download';
 import { showToast } from '../../src/components/ToastConfig';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -90,6 +90,8 @@ export default function PlayerScreen() {
   const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [isDownloaded, setIsDownloaded] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   
   // Refs
   const isInitialized = useRef(false);
@@ -111,9 +113,16 @@ export default function PlayerScreen() {
     init();
   }, []);
 
-  // 监听 currentTrack 变化，自动加载新歌曲
+  // 监听 currentTrack 变化，自动加载新歌曲并检查下载状态
   useEffect(() => {
     if (!currentTrack || !isInitialized.current) return;
+    
+    // 检查是否已下载
+    const checkDownloaded = async () => {
+      const downloaded = await isAudioDownloaded(`audio_${currentTrack.bvid}_${currentTrack.page}`);
+      setIsDownloaded(downloaded);
+    };
+    checkDownloaded();
     
     // 触发加载
     loadTrack(currentTrack);
@@ -169,6 +178,7 @@ export default function PlayerScreen() {
       }
 
       setCurrentAudioPath(downloadResult.localPath);
+      setIsDownloaded(true);
       addDebugLog(`下载完成: ${downloadResult.localPath}`);
 
       // 加载到播放器
@@ -225,6 +235,70 @@ export default function PlayerScreen() {
     const newPosition = Math.floor(playerDuration * ratio);
     
     await playerStore.dispatch({ type: 'SEEK', position: newPosition });
+  };
+
+  // 下载当前歌曲到本地
+  const handleDownload = async () => {
+    if (!currentTrack || !videoInfo || isDownloading) return;
+    
+    setIsDownloading(true);
+    addDebugLog('开始下载到本地...');
+    
+    try {
+      // 获取音频URL（复用现有逻辑）
+      const videoResult = await getVideoInfo(currentTrack.bvid);
+      if (!videoResult.success || !videoResult.video) {
+        showToast.error('获取视频信息失败', videoResult.error || '未知错误');
+        setIsDownloading(false);
+        return;
+      }
+      
+      const video = videoResult.video;
+      let cid = video.cid;
+      if (video.pages.length > 0) {
+        const partIndex = Math.min(currentTrack.page - 1, video.pages.length - 1);
+        cid = video.pages[partIndex].cid;
+      }
+      
+      const audioResult = await getAudioUrl(cid, video.bvid);
+      if (!audioResult.success || !audioResult.url) {
+        showToast.error('获取音频失败', audioResult.error || '未知错误');
+        setIsDownloading(false);
+        return;
+      }
+      
+      // 强制下载（绕过缓存）
+      const downloadResult = await downloadAudioToFile(
+        audioResult.url, 
+        `audio_${video.bvid}_${cid}`,
+        undefined,
+        true
+      );
+      
+      if (downloadResult.success) {
+        setIsDownloaded(true);
+        showToast.success('下载完成', '歌曲已保存到本地');
+        addDebugLog('下载完成');
+      } else {
+        showToast.error('下载失败', downloadResult.error || '无法下载音频');
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      showToast.error('下载失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  // 删除已下载的文件
+  const handleDeleteDownload = async () => {
+    if (!currentTrack) return;
+    
+    const filename = `audio_${currentTrack.bvid}_${currentTrack.page}`;
+    await deleteLocalAudio(filename);
+    setIsDownloaded(false);
+    showToast.success('已删除', '本地文件已删除');
+    addDebugLog('删除本地文件');
   };
 
   // 从列表播放指定歌曲
@@ -380,7 +454,26 @@ export default function PlayerScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.repeatModeContainer}>
+              <View style={styles.bottomControlsContainer}>
+                {/* 下载按钮 */}
+                <TouchableOpacity 
+                  style={[
+                    styles.downloadButton, 
+                    isDownloading && styles.downloadButtonLoading
+                  ]}
+                  onPress={isDownloaded ? handleDeleteDownload : handleDownload}
+                  disabled={isDownloading}
+                >
+                  {isDownloading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.downloadButtonIcon}>
+                      {isDownloaded ? '✓' : '⬇️'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* 循环模式按钮 */}
                 <TouchableOpacity 
                   style={styles.repeatModeButton}
                   onPress={toggleRepeatMode}
@@ -672,12 +765,27 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#FFFFFF',
   },
-  repeatModeContainer: {
+  bottomControlsContainer: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     width: '100%',
     paddingHorizontal: 40,
     marginTop: 20,
+  },
+  downloadButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadButtonLoading: {
+    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+  },
+  downloadButtonIcon: {
+    fontSize: 20,
   },
   repeatModeButton: {
     width: 44,
