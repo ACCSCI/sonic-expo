@@ -39,7 +39,8 @@ export interface LoadResult {
 
 export async function loadAndPlay(
   trackInfo: TrackInfo,
-  onStatusUpdate?: (status: { position: number; duration: number; isPlaying: boolean }) => void
+  onStatusUpdate?: (status: { position: number; duration: number; isPlaying: boolean }) => void,
+  onPlaybackFinish?: () => void
 ): Promise<LoadResult> {
   // 防止并发加载
   if (isLoadingTrack) {
@@ -64,18 +65,29 @@ export async function loadAndPlay(
     player = createAudioPlayer(trackInfo.url);
     currentTrackId = trackInfo.id;
 
-    // 设置状态监听器
-    if (onStatusUpdate) {
-      statusListener = player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
-        if (status.isLoaded) {
+// 设置状态监听器
+    statusListener = player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
+      if (status.isLoaded) {
+        if (onStatusUpdate) {
           onStatusUpdate({
             position: Math.floor(status.currentTime * 1000),
             duration: Math.floor((status.duration || 0) * 1000),
             isPlaying: status.playing,
           });
         }
-      });
-    }
+        // 检测播放完成
+        if (status.didJustFinish && onPlaybackFinish) {
+          // 重置播放器状态，让用户可以重新操作
+          player = null;
+          currentTrackId = null;
+          if (statusListener) {
+            statusListener.remove();
+            statusListener = null;
+          }
+          onPlaybackFinish();
+        }
+      }
+    });
 
     // 开始播放
     player.play();

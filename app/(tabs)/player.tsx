@@ -76,7 +76,7 @@ function ScrollingText({ text, style }: { text: string; style: any }) {
 }
 
 export default function PlayerScreen() {
-  const { queue, removeTrack, setCurrentTrack } = usePlayer();
+  const { queue, removeTrack, setCurrentTrack, currentTrack, hasNextTrack, hasPreviousTrack, playNextTrack, playPreviousTrack, skipToNext, repeatMode, toggleRepeatMode } = usePlayer();
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [videoInfo, setVideoInfo] = useState<{ title: string; author: string; artwork: string } | null>(null);
@@ -84,8 +84,10 @@ export default function PlayerScreen() {
   const [progress, setProgress] = useState({ position: 0, duration: 0 });
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
-  const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
+const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
+  const [currentAudioPath, setCurrentAudioPath] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handlePlaybackFinishRef = useRef<() => void>(() => {});
 
   const addDebugLog = (log: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -227,7 +229,8 @@ export default function PlayerScreen() {
         return;
       }
       
-      addDebugLog(`下载完成, 路径: ${downloadResult.localPath}`);
+addDebugLog(`下载完成, 路径: ${downloadResult.localPath}`);
+      setCurrentAudioPath(downloadResult.localPath);
 
       // 加载并播放 - player.ts 会处理互斥和旧播放器清理
       const loadResult = await loadAndPlay({
@@ -240,6 +243,8 @@ export default function PlayerScreen() {
       }, (status) => {
         setProgress({ position: status.position, duration: status.duration });
         setIsPlaying(status.isPlaying);
+      }, () => {
+        handlePlaybackFinish();
       });
 
       if (!loadResult.success) {
@@ -277,20 +282,22 @@ export default function PlayerScreen() {
             artist: video.author,
             artwork: video.pic,
             duration: video.duration,
-          }, (status) => {
+}, (status) => {
             setProgress({ position: status.position, duration: status.duration });
             setIsPlaying(status.isPlaying);
+          }, () => {
+            handlePlaybackFinish();
           });
           
           if (!retryResult.success) {
             showToast.error('播放失败', retryResult.error || '无法加载音频，请稍后重试');
-            // 第二次失败也删除缓存
             await deleteLocalAudio(`audio_${video.bvid}_${cid}`);
+            handleNextTrack();
           } else {
             showToast.success('播放成功', '缓存已修复');
           }
         } else {
-          showToast.error('播放失败', loadResult.error || '无法加载音频');
+          showToast.error('播放失败', loadResult.error || '无法加载音频'); handleNextTrack();
         }
       } else {
         showToast.success('开始播放', video.title);
@@ -303,9 +310,30 @@ export default function PlayerScreen() {
     }
   };
 
-  const handleTogglePlay = async () => {
-    const currentTrackId = getCurrentTrackId();
-    if (!currentTrackId) return;
+const handleTogglePlay = async () => {
+    const trackId = getCurrentTrackId();
+    
+    // 播放器已销毁但有当前歌曲，重新加载
+    if (!trackId && currentTrack && currentAudioPath) {
+      try {
+        await loadAndPlay({
+          id: currentTrack.id,
+          url: currentAudioPath,
+          title: videoInfo?.title || '',
+          artist: videoInfo?.author || '',
+          artwork: videoInfo?.artwork || '',
+          duration: 0,
+        }, (status) => {
+          setProgress({ position: status.position, duration: status.duration });
+          setIsPlaying(status.isPlaying);
+        }, handlePlaybackFinishRef.current);
+      } catch (error) {
+        console.error('Reload player error:', error);
+      }
+      return;
+    }
+    
+    if (!trackId) return;
     
     try {
       if (isPlaying) {
@@ -320,8 +348,91 @@ export default function PlayerScreen() {
     }
   };
 
-  const handleSeek = async (event: any) => {
-    if (progress.duration === 0 || !getCurrentTrackId()) return;
+  const handleNextTrack = async () => {
+    if (!hasNextTrack) return;
+    let nextTrack;
+    if (repeatMode === 'shuffle') {
+      nextTrack = playNextTrack();
+    } else {
+      nextTrack = skipToNext();
+    }
+    if (nextTrack) {
+      await handlePlay(nextTrack);
+    }
+  };
+
+  const handlePreviousTrack = async () => {
+    if (!hasPreviousTrack) return;
+    const prevTrack = playPreviousTrack();
+    if (prevTrack) {
+      await handlePlay(prevTrack);
+    }
+  };
+
+  const handlePlaybackFinish = useCallback(async () => {
+    if (repeatMode === 'one') {
+      try {
+        const audioPath = currentAudioPath;
+        if (audioPath && currentTrack) {
+          await unload();
+          await loadAndPlay({
+            id: currentTrack.id,
+            url: audioPath,
+            title: videoInfo?.title || '',
+            artist: videoInfo?.author || '',
+            artwork: videoInfo?.artwork || '',
+            duration: 0,
+          }, (status) => {
+            setProgress({ position: status.position, duration: status.duration });
+            setIsPlaying(status.isPlaying);
+          }, () => {
+            handlePlaybackFinishRef.current();
+          });
+        }
+      } catch (error) {
+        console.error('Auto replay error:', error);
+      }
+    } else {
+      handleNextTrack();
+    }
+  }, [repeatMode, currentTrack, videoInfo, currentAudioPath, handleNextTrack]);
+
+  // 更新 ref
+  handlePlaybackFinishRef.current = handlePlaybackFinish;
+
+const handleSeek = async (event: any) => {
+    if (progress.duration === 0) return;
+    
+    const trackId = getCurrentTrackId();
+    
+    // 播放器已销毁但有当前歌曲，重新加载并seek
+    if (!trackId && currentTrack && currentAudioPath) {
+      try {
+        const { locationX } = event.nativeEvent;
+        const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+        const newPosition = Math.floor(progress.duration * ratio);
+        
+        await loadAndPlay({
+          id: currentTrack.id,
+          url: currentAudioPath,
+          title: videoInfo?.title || '',
+          artist: videoInfo?.author || '',
+          artwork: videoInfo?.artwork || '',
+          duration: progress.duration,
+        }, (status) => {
+          setProgress({ position: status.position, duration: status.duration });
+          setIsPlaying(status.isPlaying);
+        }, handlePlaybackFinishRef.current);
+        
+        await seekTo(newPosition);
+        setProgress(prev => ({ ...prev, position: newPosition }));
+      } catch (error) {
+        console.error('Seek reload error:', error);
+      }
+      return;
+    }
+    
+    if (!trackId) return;
     
     try {
       const { locationX } = event.nativeEvent;
@@ -335,11 +446,21 @@ export default function PlayerScreen() {
     }
   };
 
-  const formatTime = (millis: number) => {
+const formatTime = (millis: number) => {
     const secs = Math.floor(millis / 1000);
     const mins = Math.floor(secs / 60);
     const remainingSecs = secs % 60;
     return `${mins}:${remainingSecs.toString().padStart(2, '0')}`;
+  };
+
+  const getRepeatModeIcon = () => {
+    switch (repeatMode) {
+      case 'off': return '➡️';
+      case 'all': return '🔁';
+      case 'one': return '🔂';
+      case 'shuffle': return '🔀';
+      default: return '➡️';
+    }
   };
 
   // 底部迷你播放器
@@ -450,8 +571,16 @@ export default function PlayerScreen() {
                 </View>
               </View>
 
-              {/* 播放控制 */}
+{/* 播放控制 - 第一行: 上一首 播放/暂停 下一首 */}
               <View style={styles.fullPlayerControls}>
+                <TouchableOpacity 
+                  style={[styles.fullPlayerControlButton, !hasPreviousTrack && styles.buttonDisabled]}
+                  onPress={handlePreviousTrack}
+                  disabled={!hasPreviousTrack}
+                >
+                  <Text style={styles.fullPlayerControlButtonText}>⏮</Text>
+                </TouchableOpacity>
+                
                 <TouchableOpacity 
                   style={styles.fullPlayerPlayButton}
                   onPress={handleTogglePlay}
@@ -459,6 +588,24 @@ export default function PlayerScreen() {
                   <Text style={styles.fullPlayerPlayButtonText}>
                     {isPlaying ? '⏸' : '▶'}
                   </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.fullPlayerControlButton, !hasNextTrack && styles.buttonDisabled]}
+                  onPress={handleNextTrack}
+                  disabled={!hasNextTrack}
+                >
+                  <Text style={styles.fullPlayerControlButtonText}>⏭</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* 循环模式控制 - 第二行: 左侧循环按钮 */}
+              <View style={styles.repeatModeContainer}>
+                <TouchableOpacity 
+                  style={styles.repeatModeButton}
+                  onPress={toggleRepeatMode}
+                >
+                  <Text style={styles.repeatModeIcon}>{getRepeatModeIcon()}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -731,9 +878,40 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
   },
-  fullPlayerPlayButtonText: {
+fullPlayerPlayButtonText: {
     fontSize: 36,
     color: '#FFFFFF',
+  },
+  fullPlayerControlButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+  },
+  fullPlayerControlButtonText: {
+    fontSize: 24,
+    color: '#FFFFFF',
+  },
+  repeatModeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    width: '100%',
+    paddingHorizontal: 40,
+    marginTop: 20,
+  },
+  repeatModeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  repeatModeIcon: {
+    fontSize: 20,
   },
   
   // 其他样式保持不变
