@@ -31,14 +31,20 @@ export function getCurrentTrackId(): string | null {
   return currentTrackId;
 }
 
+export interface LoadResult {
+  success: boolean;
+  error?: string;
+  isCorrupted?: boolean;
+}
+
 export async function loadAndPlay(
   trackInfo: TrackInfo,
   onStatusUpdate?: (status: { position: number; duration: number; isPlaying: boolean }) => void
-): Promise<boolean> {
+): Promise<LoadResult> {
   // 防止并发加载
   if (isLoadingTrack) {
     console.log('已有歌曲正在加载中，忽略此次请求');
-    return false;
+    return { success: false, error: '已有歌曲正在加载中' };
   }
 
   isLoadingTrack = true;
@@ -48,7 +54,7 @@ export async function loadAndPlay(
     if (currentTrackId === trackInfo.id && player?.isLoaded) {
       console.log('同一首歌已在播放，不重载');
       isLoadingTrack = false;
-      return true;
+      return { success: true };
     }
 
     // 彻底清理之前的播放器
@@ -73,11 +79,23 @@ export async function loadAndPlay(
 
     // 开始播放
     player.play();
-    return true;
+    return { success: true };
   } catch (error) {
     console.error('Error loading audio:', error);
     currentTrackId = null;
-    return false;
+    
+    // 判断错误类型
+    const errorMessage = error instanceof Error ? error.message : '播放失败';
+    const isCorrupted = errorMessage.includes('corrupt') || 
+                       errorMessage.includes('format') ||
+                       errorMessage.includes('decoding') ||
+                       errorMessage.includes('cannot parse');
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      isCorrupted 
+    };
   } finally {
     isLoadingTrack = false;
   }

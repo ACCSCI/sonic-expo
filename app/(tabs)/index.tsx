@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   AppState,
   StyleSheet,
   ScrollView,
@@ -14,6 +13,8 @@ import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { parseInput } from '../../src/utils/parser';
 import { usePlayer } from '../../src/context/PlayerContext';
+import { getVideoInfo } from '../../src/services/bilibili';
+import { showToast } from '../../src/components/ToastConfig';
 
 export default function ParseScreen() {
   const [bvNumber, setBvNumber] = useState('');
@@ -59,7 +60,7 @@ export default function ParseScreen() {
   const handleParse = async () => {
     const input = bvNumber.trim();
     if (!input) {
-      Alert.alert('提示', '请输入 BV 号或链接');
+      showToast.info('提示', '请输入 BV 号或链接');
       return;
     }
 
@@ -102,21 +103,45 @@ export default function ParseScreen() {
     }
   };
 
-  const handleAddToPlaylist = () => {
+  const handleAddToPlaylist = async () => {
     if (!parsedResult) {
-      Alert.alert('提示', '请先解析视频');
+      showToast.info('提示', '请先解析视频');
       return;
     }
 
-    const fullUrl = parsedResult.fullUrl || `https://www.bilibili.com/video/${parsedResult.bvid}`;
+    setIsLoading(true);
     
-    addTrack(parsedResult.bvid, parsedResult.page, undefined, fullUrl);
-    
-    Alert.alert(
-      '已添加到播放列表',
-      `BV: ${parsedResult.bvid}\n分P: ${parsedResult.page}\nURL: ${fullUrl}`,
-      [{ text: '确定' }]
-    );
+    try {
+      // 获取视频信息以获取标题和作者
+      const videoResult = await getVideoInfo(parsedResult.bvid);
+      
+      const title = videoResult.success && videoResult.video 
+        ? videoResult.video.title 
+        : undefined;
+      const author = videoResult.success && videoResult.video 
+        ? videoResult.video.author 
+        : undefined;
+      
+      const fullUrl = parsedResult.fullUrl || `https://www.bilibili.com/video/${parsedResult.bvid}`;
+      
+      addTrack(parsedResult.bvid, parsedResult.page, title, author, fullUrl);
+      
+      showToast.success(
+        '已添加到播放列表',
+        `${title || '未知标题'} - UP主: ${author || '未知'} - 分P: ${parsedResult.page}`
+      );
+    } catch (error) {
+      // 如果获取信息失败，仍然添加曲目但使用默认值
+      const fullUrl = parsedResult.fullUrl || `https://www.bilibili.com/video/${parsedResult.bvid}`;
+      addTrack(parsedResult.bvid, parsedResult.page, undefined, undefined, fullUrl);
+      
+      showToast.success(
+        '已添加到播放列表',
+        `BV: ${parsedResult.bvid} - 分P: ${parsedResult.page}`
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handlePaste = async () => {

@@ -63,7 +63,8 @@ async function downloadWithRetry(
 export async function downloadAudioToFile(
   audioUrl: string, 
   filename: string,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  forceDownload: boolean = false
 ): Promise<{ success: boolean; localPath?: string; error?: string }> {
   try {
     // 验证 URL
@@ -76,17 +77,27 @@ export async function downloadAudioToFile(
     
     const destFile = new File(Paths.cache, `${filename}.m4s`);
     const localPath = destFile.uri;
-    console.log('开始下载音频到:', localPath);
     
-    // 先删除旧文件（如果存在）
-    if (destFile.exists) {
+    // 如果不是强制下载，检查缓存文件是否存在且有效 (File.size 返回文件大小，不存在时返回 0)
+    if (!forceDownload && destFile.exists && destFile.size > 1024) {
+      console.log('使用缓存文件:', localPath, '大小:', destFile.size);
+      return {
+        success: true,
+        localPath: localPath,
+      };
+    }
+    
+    // 如果是强制下载且文件存在，先删除旧文件
+    if (forceDownload && destFile.exists) {
       try {
         await destFile.delete();
-        console.log('删除旧文件');
+        console.log('强制重新下载，已删除旧缓存:', localPath);
       } catch (e) {
-        console.log('删除旧文件失败:', e);
+        console.log('删除旧缓存文件失败:', e);
       }
     }
+    
+    console.log('开始下载音频到:', localPath);
     
     // 使用重试机制下载
     const downloadResult = await downloadWithRetry(audioUrl);
@@ -101,15 +112,18 @@ export async function downloadAudioToFile(
     // 写入文件
     await destFile.write(downloadResult.data);
     
+    // 重新读取文件信息以获取更新后的 size
+    const finalSize = destFile.size;
+    
     // 验证文件是否写入成功
-    if (!destFile.exists) {
+    if (!destFile.exists || finalSize === 0) {
       return {
         success: false,
         error: '文件写入失败',
       };
     }
     
-    console.log('写入完成, 本地路径:', destFile.uri, '文件大小:', downloadResult.data.length);
+    console.log('写入完成, 本地路径:', destFile.uri, '文件大小:', finalSize);
     return {
       success: true,
       localPath: destFile.uri,
