@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
 import { playerStore, PlayerState } from '../services/PlayerStore';
 import { loadQueueState, saveQueueState } from '../storage/queueStorage';
+import { getDownloadedTrackIds } from '../services/download';
 
 export type RepeatMode = 'off' | 'all' | 'one' | 'shuffle';
 
@@ -37,6 +38,11 @@ export interface PlayerContextType {
   playerPosition: number;
   playerDuration: number;
   isPlaying: boolean;
+  // 下载状态
+  downloadedTracks: Set<string>;
+  isTrackDownloaded: (trackId: string) => boolean;
+  markTrackDownloaded: (trackId: string) => void;
+  markTrackNotDownloaded: (trackId: string) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -52,6 +58,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [playerPosition, setPlayerPosition] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  
+  // 下载状态 - 使用 Set 存储已下载的歌曲ID
+  const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(new Set());
   
   // 用于避免重复处理 completed 状态
   const lastCompletedTrackId = useRef<string | null>(null);

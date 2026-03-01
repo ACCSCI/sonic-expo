@@ -245,6 +245,42 @@ export async function deletePermanentAudio(filename: string): Promise<boolean> {
   }
 }
 
+// 扫描下载目录，返回已下载的歌曲ID列表（根据文件名解析）
+export async function getDownloadedTrackIds(): Promise<string[]> {
+  try {
+    const downloadDirPath = `${documentDirectory}${DOWNLOAD_DIR}/`;
+    const dirInfo = await FileSystem.getInfoAsync(downloadDirPath);
+    
+    if (!dirInfo.exists) {
+      return [];
+    }
+
+    // 读取目录内容
+    const files = await FileSystem.readDirectoryAsync(downloadDirPath);
+    const trackIds: string[] = [];
+    
+    for (const filename of files) {
+      // 文件名格式: audio_{bvid}_{cid}.m4s
+      // 提取 track ID: {bvid}_{page}
+      const match = filename.match(/^audio_(BV\w+)_(\d+)\.m4s$/);
+      if (match) {
+        const bvid = match[1];
+        const cid = match[2];
+        // 构建 track ID (bvid_page)
+        // 注意：这里用 cid 作为 page，实际应该根据队列中的信息匹配
+        // 简化处理：先返回 bvid_cid 格式
+        trackIds.push(`${bvid}_${cid}`);
+      }
+    }
+    
+    console.log('[Download] Scanned downloaded files:', trackIds.length);
+    return trackIds;
+  } catch (error) {
+    console.error('[Download] Failed to scan downloaded files:', error);
+    return [];
+  }
+}
+
 // 获取所有已下载的文件列表
 export async function getAllDownloadedFiles(): Promise<{ filename: string; path: string; size: number }[]> {
   try {

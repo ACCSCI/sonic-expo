@@ -9,17 +9,20 @@ export interface PersistedState {
   currentTrackId: string | null;
   position: number;
   repeatMode: RepeatMode;
+  downloadedTrackIds: string[]; // 已下载的歌曲ID列表
   version: number;
 }
 
-export async function saveQueueState(state: Omit<PersistedState, 'version'>): Promise<void> {
+export async function saveQueueState(
+  state: Omit<PersistedState, 'version' | 'downloadedTrackIds'> & { downloadedTrackIds: string[] }
+): Promise<void> {
   try {
     const data: PersistedState = {
       ...state,
       version: CURRENT_VERSION,
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    console.log('[Storage] Queue state saved');
+    console.log('[Storage] Queue state saved, downloaded tracks:', data.downloadedTrackIds.length);
   } catch (error) {
     console.error('[Storage] Failed to save queue state:', error);
   }
