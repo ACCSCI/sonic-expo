@@ -245,8 +245,8 @@ export async function deletePermanentAudio(filename: string): Promise<boolean> {
   }
 }
 
-// 扫描下载目录，返回已下载的歌曲ID列表（根据文件名解析）
-export async function getDownloadedTrackIds(): Promise<string[]> {
+// 扫描下载目录，返回已下载的文件信息列表
+export async function getDownloadedFilesInfo(): Promise<{bvid: string; cid: string}[]> {
   try {
     // 使用新 API：创建 Directory 实例并调用 list()
     const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
@@ -258,30 +258,36 @@ export async function getDownloadedTrackIds(): Promise<string[]> {
 
     // 使用新 API 读取目录内容
     const entries = downloadDir.list();
-    const trackIds: string[] = [];
+    const files: {bvid: string; cid: string}[] = [];
     
     for (const entry of entries) {
       // 只处理文件
       if (entry instanceof File) {
         const filename = entry.name;
         // 文件名格式: audio_{bvid}_{cid}.m4s
-        // 提取 track ID: {bvid}_{page}
         const match = filename.match(/^audio_(BV\w+)_(\d+)\.m4s$/);
         if (match) {
-          const bvid = match[1];
-          const cid = match[2];
-          // 构建 track ID (bvid_page)
-          trackIds.push(`${bvid}_${cid}`);
+          files.push({
+            bvid: match[1],
+            cid: match[2],
+          });
         }
       }
     }
     
-    console.log('[Download] Scanned downloaded files:', trackIds.length);
-    return trackIds;
+    console.log('[Download] Scanned downloaded files:', files.length);
+    return files;
   } catch (error) {
     console.error('[Download] Failed to scan downloaded files:', error);
     return [];
   }
+}
+
+// 保持向后兼容
+export async function getDownloadedTrackIds(): Promise<string[]> {
+  const files = await getDownloadedFilesInfo();
+  // 返回 bvid_cid 格式的 ID
+  return files.map(f => `${f.bvid}_${f.cid}`);
 }
 
 // 获取所有已下载的文件列表

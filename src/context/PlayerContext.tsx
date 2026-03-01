@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { PlayerState, playerStore } from "../services/PlayerStore";
 import { loadQueueState, saveQueueState } from "../storage/queueStorage";
+import { getDownloadedFilesInfo } from "../services/download";
 
 export type RepeatMode = "off" | "all" | "one" | "shuffle";
 
@@ -142,7 +143,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrentTrackState(track);
   }, []);
 
-  // 初始化：从存储加载队列状态
+  // 初始化：从存储加载队列状态并扫描下载目录
   useEffect(() => {
     const init = async () => {
       const saved = await loadQueueState();
@@ -161,6 +162,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             }, 100);
           }
         }
+
+        // 扫描下载目录并匹配已下载的歌曲
+        const downloadedFiles = await getDownloadedFilesInfo();
+        const downloadedTrackIds = new Set<string>();
+        
+        for (const file of downloadedFiles) {
+          // 在队列中查找匹配的 track（根据 bvid）
+          const matchedTrack = saved.queue.find((t) => t.bvid === file.bvid);
+          if (matchedTrack) {
+            downloadedTrackIds.add(matchedTrack.id);
+            console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id}`);
+          }
+        }
+        
+        setDownloadedTracks(downloadedTrackIds);
+        console.log(`[PlayerContext] Total downloaded tracks: ${downloadedTrackIds.size}`);
       }
     };
     init();
