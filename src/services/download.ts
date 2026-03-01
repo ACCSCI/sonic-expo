@@ -166,14 +166,14 @@ export async function downloadToPermanentStorage(
       };
     }
 
-    // 确保下载目录存在
+    // 确保下载目录存在（使用新 API）
     const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
     if (!downloadDir.exists) {
       console.log('创建下载目录:', downloadDir.uri);
       await downloadDir.create();
     }
 
-    const destFile = new File(Paths.document, `${DOWNLOAD_DIR}/${filename}.m4s`);
+    const destFile = new File(downloadDir, `${filename}.m4s`);
     
     console.log('开始下载音频到永久存储:', destFile.uri);
     
@@ -248,28 +248,31 @@ export async function deletePermanentAudio(filename: string): Promise<boolean> {
 // 扫描下载目录，返回已下载的歌曲ID列表（根据文件名解析）
 export async function getDownloadedTrackIds(): Promise<string[]> {
   try {
-    const downloadDirPath = `${documentDirectory}${DOWNLOAD_DIR}/`;
-    const dirInfo = await FileSystem.getInfoAsync(downloadDirPath);
+    // 使用新 API：创建 Directory 实例并调用 list()
+    const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
     
-    if (!dirInfo.exists) {
+    // 检查目录是否存在
+    if (!downloadDir.exists) {
       return [];
     }
 
-    // 读取目录内容
-    const files = await FileSystem.readDirectoryAsync(downloadDirPath);
+    // 使用新 API 读取目录内容
+    const entries = downloadDir.list();
     const trackIds: string[] = [];
     
-    for (const filename of files) {
-      // 文件名格式: audio_{bvid}_{cid}.m4s
-      // 提取 track ID: {bvid}_{page}
-      const match = filename.match(/^audio_(BV\w+)_(\d+)\.m4s$/);
-      if (match) {
-        const bvid = match[1];
-        const cid = match[2];
-        // 构建 track ID (bvid_page)
-        // 注意：这里用 cid 作为 page，实际应该根据队列中的信息匹配
-        // 简化处理：先返回 bvid_cid 格式
-        trackIds.push(`${bvid}_${cid}`);
+    for (const entry of entries) {
+      // 只处理文件
+      if (entry instanceof File) {
+        const filename = entry.name;
+        // 文件名格式: audio_{bvid}_{cid}.m4s
+        // 提取 track ID: {bvid}_{page}
+        const match = filename.match(/^audio_(BV\w+)_(\d+)\.m4s$/);
+        if (match) {
+          const bvid = match[1];
+          const cid = match[2];
+          // 构建 track ID (bvid_page)
+          trackIds.push(`${bvid}_${cid}`);
+        }
       }
     }
     
