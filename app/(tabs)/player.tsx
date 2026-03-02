@@ -4,6 +4,7 @@ import {
   Image, Pressable, Modal, Animated, Dimensions, Alert 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePlayer, QueuedTrack } from '../../src/context/PlayerContext';
 import { getVideoInfo, getAudioUrl } from '../../src/services/bilibili';
 import { playerStore, Track } from '../../src/services/PlayerStore';
@@ -157,6 +158,10 @@ function QueueItem({
 }
 
 export default function PlayerScreen() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const styles = getStyles(isDark);
+
   const { 
     queue, removeTrack, currentTrack, setCurrentTrack,
     hasNextTrack, hasPreviousTrack, skipToNext, playPreviousTrack,
@@ -648,29 +653,29 @@ export default function PlayerScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F3F4F6' },
+const getStyles = (isDark: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: isDark ? '#1F2937' : '#F3F4F6' },
   offlineBanner: { backgroundColor: '#F59E0B', padding: 8, alignItems: 'center' },
   offlineBannerText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
   scrollView: { flex: 1 },
   content: { padding: 16, paddingBottom: 100 },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#111827', marginBottom: 16 },
+  title: { fontSize: 24, fontWeight: 'bold', color: isDark ? '#F9FAFB' : '#111827', marginBottom: 16 },
   
   // 队列项
-  trackCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  trackCard: { backgroundColor: isDark ? '#374151' : '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   trackCardActive: { borderColor: '#3B82F6', borderWidth: 2 },
   trackCardOffline: { opacity: 0.6 },
   trackInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   trackIndex: { fontSize: 18, fontWeight: '600', color: '#3B82F6', width: 30 },
   trackDetail: { flex: 1 },
-  trackTitle: { fontSize: 16, fontWeight: '500', color: '#111827', marginBottom: 2 },
-  trackAuthor: { fontSize: 13, color: '#6B7280', marginBottom: 2 },
+  trackTitle: { fontSize: 16, fontWeight: '500', color: isDark ? '#F9FAFB' : '#111827', marginBottom: 2 },
+  trackAuthor: { fontSize: 13, color: isDark ? '#9CA3AF' : '#6B7280', marginBottom: 2 },
   trackPage: { fontSize: 12, color: '#9CA3AF' },
   textOffline: { color: '#9CA3AF' },
   trackActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   
   // 图标按钮
-  iconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#4B5563' : '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
   iconButtonDownloaded: { backgroundColor: '#D1FAE5' },
   iconButtonLoading: { backgroundColor: '#DBEAFE' },
   iconButtonText: { fontSize: 16 },
@@ -687,21 +692,21 @@ const styles = StyleSheet.create({
   
   // 通用
   buttonDisabled: { opacity: 0.6 },
-  emptyCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 32, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  emptyCard: { backgroundColor: isDark ? '#374151' : '#FFFFFF', borderRadius: 12, padding: 32, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   emptyText: { fontSize: 18, color: '#9CA3AF', marginBottom: 8 },
-  hint: { color: '#6B7280' },
+  hint: { color: isDark ? '#9CA3AF' : '#6B7280' },
   list: { gap: 12 },
-  listTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  listTitle: { fontSize: 16, fontWeight: '600', color: isDark ? '#9CA3AF' : '#374151', marginBottom: 8 },
   
   // 迷你播放器
   miniPlayerContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, backgroundColor: 'transparent' },
-  miniPlayer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 25, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
+  miniPlayer: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#374151' : '#FFFFFF', borderRadius: 25, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
   miniPlayerArtwork: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E5E7EB', overflow: 'hidden' },
   miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   miniPlayerArtworkImage: { width: 40, height: 40 },
   miniPlayerArtworkText: { fontSize: 20 },
   miniPlayerInfo: { flex: 1, marginHorizontal: 12, overflow: 'hidden' },
-  miniPlayerText: { fontSize: 14, color: '#111827', fontWeight: '500' },
+  miniPlayerText: { fontSize: 14, color: isDark ? '#F9FAFB' : '#111827', fontWeight: '500' },
   miniPlayerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center' },
   miniPlayerButtonText: { fontSize: 18, color: '#FFFFFF' },
   
