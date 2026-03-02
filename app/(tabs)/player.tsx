@@ -75,7 +75,8 @@ function QueueItem({
   onPlay,
   onDownload,
   onDelete,
-  onRemove 
+  onRemove,
+  isDark
 }: {
   track: QueuedTrack;
   index: number;
@@ -88,7 +89,9 @@ function QueueItem({
   onDownload: () => void;
   onDelete: () => void;
   onRemove: () => void;
+  isDark: boolean;
 }) {
+  const styles = getStyles(isDark);
   const canPlay = !isOffline || downloadStatus === 'downloaded';
   
   return (
@@ -641,6 +644,7 @@ export default function PlayerScreen() {
                 onDownload={() => handleDownload(track)}
                 onDelete={() => handleDeleteDownload(track)}
                 onRemove={() => removeTrack(track.id)}
+                isDark={isDark}
               />
             ))}
           </View>
