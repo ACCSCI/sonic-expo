@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, 
-  Image, Pressable, Modal, Animated, Dimensions, Alert 
+  Image, Modal, Animated, Dimensions, Alert, PanResponder
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -181,7 +181,11 @@ export default function PlayerScreen() {
   const [videoInfo, setVideoInfo] = useState<{ title: string; author: string; artwork: string } | null>(null);
   const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
+  const [progressBarPageX, setProgressBarPageX] = useState(0);
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false);
+  const [dragPosition, setDragPosition] = useState(0);
   const [downloadingTracks, setDownloadingTracks] = useState<Set<string>>(new Set());
+  const progressBarRef = useRef<View>(null);
   
   const isInitialized = useRef(false);
 
@@ -354,13 +358,62 @@ export default function PlayerScreen() {
     }
   };
 
-  const handleSeek = async (event: any) => {
-    if (playerDuration === 0) return;
-    const { locationX } = event.nativeEvent;
-    const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
-    const newPosition = Math.floor(playerDuration * ratio);
-    await playerStore.dispatch({ type: 'SEEK', position: newPosition });
+  const clampProgressPosition = (position: number) => {
+    return Math.max(0, Math.min(playerDuration, position));
   };
+
+  const seekToPosition = async (position: number) => {
+    if (playerDuration === 0) return;
+    const nextPosition = clampProgressPosition(position);
+    await playerStore.dispatch({ type: 'SEEK', position: nextPosition });
+  };
+
+  const getPositionFromPageX = (pageX: number) => {
+    if (progressBarWidth === 0 || playerDuration === 0) return playerPosition;
+    const relativeX = pageX - progressBarPageX;
+    const clampedX = Math.max(0, Math.min(progressBarWidth, relativeX));
+    const ratio = clampedX / progressBarWidth;
+    return Math.floor(playerDuration * ratio);
+  };
+
+  const lastSeekTimestamp = useRef(0);
+
+  const handleDragMove = async (pageX: number) => {
+    if (progressBarWidth === 0 || playerDuration === 0) return;
+    if (!Number.isFinite(pageX)) return;
+    const nextPosition = getPositionFromPageX(pageX);
+    setDragPosition(nextPosition);
+
+    const now = Date.now();
+    if (now - lastSeekTimestamp.current > 50) {
+      lastSeekTimestamp.current = now;
+      await seekToPosition(nextPosition);
+    }
+  };
+
+  const progressPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: async (event) => {
+      if (progressBarWidth === 0 || playerDuration === 0) return;
+      const { pageX } = event.nativeEvent;
+      if (!Number.isFinite(pageX)) return;
+      setIsDraggingProgress(true);
+      const newPosition = getPositionFromPageX(pageX);
+      setDragPosition(newPosition);
+      await seekToPosition(newPosition);
+    },
+    onPanResponderMove: async (event) => {
+      await handleDragMove(event.nativeEvent.pageX);
+    },
+    onPanResponderRelease: async (event) => {
+      await handleDragMove(event.nativeEvent.pageX);
+      setIsDraggingProgress(false);
+    },
+    onPanResponderTerminate: () => {
+      setIsDraggingProgress(false);
+    },
+  }), [progressBarWidth, playerDuration, progressBarPageX, playerPosition]);
 
   // 下载管理
   const handleDownload = async (track: QueuedTrack) => {
@@ -534,16 +587,39 @@ export default function PlayerScreen() {
               </View>
 
               <View style={styles.fullPlayerProgressContainer}>
-                <Pressable 
+                <View
+                  ref={progressBarRef}
                   style={styles.fullPlayerProgressBar}
-                  onPress={handleSeek}
-                  onLayout={(event) => setProgressBarWidth(event.nativeEvent.layout.width)}
+                  onLayout={(event: { nativeEvent: { layout: { width: number } } }) => {
+                    setProgressBarWidth(event.nativeEvent.layout.width);
+                    progressBarRef.current?.measureInWindow((x) => {
+                      setProgressBarPageX(x);
+                    });
+                  }}
+                  {...progressPanResponder.panHandlers}
                 >
                   <View style={styles.fullPlayerProgressTrack} />
-                  <View style={[styles.fullPlayerProgressFill, { width: `${(playerPosition / playerDuration) * 100 || 0}%` }]} />
-                </Pressable>
+                  <View
+                    style={[
+                      styles.fullPlayerProgressFill,
+                      { width: `${((isDraggingProgress ? dragPosition : playerPosition) / playerDuration) * 100 || 0}%` },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.fullPlayerProgressThumb,
+                      {
+                        left: `${((isDraggingProgress ? dragPosition : playerPosition) / playerDuration) * 100 || 0}%`,
+                        transform: [
+                          { translateX: -8 },
+                          { scale: isDraggingProgress ? 1.4 : 1 },
+                        ],
+                      },
+                    ]}
+                  />
+                </View>
                 <View style={styles.fullPlayerTimeRow}>
-                  <Text style={styles.fullPlayerTimeText}>{formatTime(playerPosition)}</Text>
+                  <Text style={styles.fullPlayerTimeText}>{formatTime(isDraggingProgress ? dragPosition : playerPosition)}</Text>
                   <Text style={styles.fullPlayerTimeText}>{formatTime(playerDuration)}</Text>
                 </View>
               </View>
@@ -713,9 +789,10 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   fullPlayerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF', textAlign: 'center', marginBottom: 8 },
   fullPlayerArtist: { fontSize: 16, color: '#9CA3AF', textAlign: 'center' },
   fullPlayerProgressContainer: { width: '100%', marginBottom: 40 },
-  fullPlayerProgressBar: { height: 6, backgroundColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 3, overflow: 'hidden' },
+  fullPlayerProgressBar: { height: 6, backgroundColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 3, overflow: 'visible' },
   fullPlayerProgressTrack: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255, 255, 255, 0.2)' },
   fullPlayerProgressFill: { height: '100%', backgroundColor: '#3B82F6', borderRadius: 3 },
+  fullPlayerProgressThumb: { position: 'absolute', top: -5, width: 16, height: 16, borderRadius: 8, backgroundColor: '#FFFFFF', borderWidth: 2, borderColor: '#3B82F6' },
   fullPlayerTimeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
   fullPlayerTimeText: { fontSize: 13, color: '#9CA3AF' },
   fullPlayerControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
