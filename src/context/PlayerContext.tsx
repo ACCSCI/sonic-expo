@@ -427,23 +427,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const skipToNext = useCallback((): QueuedTrack | null => {
     if (queue.length === 0) return null;
 
-    let nextIndex: number;
+    let nextTrack: QueuedTrack | null = null;
+
     if (currentTrackIndex === -1) {
-      nextIndex = 0;
+      nextTrack = queue[0];
+    } else if (repeatMode === "shuffle") {
+      // 随机模式：随机播放下一首
+      nextTrack = getRandomTrack();
     } else if (currentTrackIndex < queue.length - 1) {
-      nextIndex = currentTrackIndex + 1;
+      nextTrack = queue[currentTrackIndex + 1];
     } else {
       if (repeatMode === "off") {
         return null;
       } else {
-        nextIndex = 0;
+        nextTrack = queue[0];
       }
     }
 
-    const nextTrack = queue[nextIndex];
-    setCurrentTrack(nextTrack);
+    if (nextTrack) {
+      setCurrentTrack(nextTrack);
+      if (repeatMode === "shuffle" && nextTrack.id !== currentTrack?.id) {
+        setShuffleHistory((prev) => [...prev.slice(-49), nextTrack!.id]);
+      }
+    }
     return nextTrack;
-  }, [queue, currentTrackIndex, repeatMode, setCurrentTrack]);
+  }, [queue, currentTrackIndex, repeatMode, getRandomTrack, currentTrack, setCurrentTrack]);
 
   const playPreviousTrack = useCallback((): QueuedTrack | null => {
     if (!hasPreviousTrack) return null;
