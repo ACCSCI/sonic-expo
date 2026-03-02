@@ -6,13 +6,14 @@ import Toast from 'react-native-toast-message';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PlayerProvider } from '@/src/context/PlayerContext';
+import { ThemeProvider as AppThemeProvider } from '@/src/context/ThemeContext';
 import { toastConfig } from '@/src/components/ToastConfig';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-export default function RootLayout() {
+function RootLayoutInner() {
   const colorScheme = useColorScheme();
 
   return (
@@ -23,8 +24,16 @@ export default function RootLayout() {
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
       </PlayerProvider>
-      <StatusBar style="auto" />
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       <Toast config={toastConfig} />
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AppThemeProvider>
+      <RootLayoutInner />
+    </AppThemeProvider>
   );
 }

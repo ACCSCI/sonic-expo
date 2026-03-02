@@ -11,12 +11,17 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { parseInput } from '../../src/utils/parser';
 import { usePlayer } from '../../src/context/PlayerContext';
 import { getVideoInfo } from '../../src/services/bilibili';
 import { showToast } from '../../src/components/ToastConfig';
 
 export default function ParseScreen() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const styles = getStyles(isDark);
+
   const [bvNumber, setBvNumber] = useState('');
   const [pageNumber, setPageNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -255,10 +260,10 @@ export default function ParseScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: isDark ? '#1F2937' : '#F3F4F6',
   },
   scrollView: {
     flex: 1,
@@ -270,11 +275,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#111827',
+    color: isDark ? '#F9FAFB' : '#111827',
     marginBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: isDark ? '#374151' : '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -286,7 +291,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#6B7280',
+    color: isDark ? '#9CA3AF' : '#6B7280',
     marginBottom: 8,
   },
   inputRow: {
@@ -294,8 +299,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   input: {
-    backgroundColor: '#F3F4F6',
-    color: '#111827',
+    backgroundColor: isDark ? '#4B5563' : '#F3F4F6',
+    color: isDark ? '#F9FAFB' : '#111827',
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -336,19 +341,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   errorCard: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isDark ? '#7F1D1D' : '#FEF2F2',
     borderRadius: 12,
     padding: 16,
     marginTop: 16,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: isDark ? '#991B1B' : '#FECACA',
   },
   errorText: {
-    color: '#DC2626',
+    color: isDark ? '#FCA5A5' : '#DC2626',
     fontSize: 14,
   },
   resultCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: isDark ? '#374151' : '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     marginTop: 16,
@@ -370,12 +375,12 @@ const styles = StyleSheet.create({
   },
   resultLabel: {
     fontSize: 14,
-    color: '#6B7280',
+    color: isDark ? '#9CA3AF' : '#6B7280',
     width: 50,
   },
   resultValue: {
     fontSize: 14,
-    color: '#111827',
+    color: isDark ? '#F9FAFB' : '#111827',
     fontWeight: '500',
     flex: 1,
   },
@@ -394,11 +399,11 @@ const styles = StyleSheet.create({
   tip: {
     marginTop: 24,
     padding: 16,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: isDark ? '#1E3A8A' : '#EFF6FF',
     borderRadius: 12,
   },
   tipText: {
-    color: '#1E40AF',
+    color: isDark ? '#93C5FD' : '#1E40AF',
     fontSize: 14,
   },
 });
