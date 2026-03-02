@@ -67,6 +67,7 @@ export interface PlayerContextType {
   isTrackDownloaded: (trackId: string) => boolean;
   markTrackDownloaded: (trackId: string) => void;
   markTrackNotDownloaded: (trackId: string) => void;
+  clearDownloadedTracks: () => void;
   // 恢复状态
   isRestoring: boolean;
   restoredTrackMetadata: VideoMetadata | null;
@@ -540,6 +541,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const clearDownloadedTracks = useCallback(() => {
+    setDownloadedTracks(new Set());
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{
@@ -566,6 +571,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         isTrackDownloaded,
         markTrackDownloaded,
         markTrackNotDownloaded,
+        clearDownloadedTracks,
         isRestoring,
         restoredTrackMetadata,
       }}

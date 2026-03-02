@@ -331,3 +331,73 @@ export async function isAudioDownloaded(filename: string): Promise<boolean> {
   // 向后兼容，检查永久存储
   return isAudioPermanentlyDownloaded(filename);
 }
+
+async function getDirectorySize(directory: Directory): Promise<number> {
+  if (!directory.exists) {
+    return 0;
+  }
+
+  const entries = directory.list();
+  let totalSize = 0;
+
+  for (const entry of entries) {
+    if (entry instanceof File) {
+      totalSize += entry.size || 0;
+    } else if (entry instanceof Directory) {
+      totalSize += await getDirectorySize(entry);
+    }
+  }
+
+  return totalSize;
+}
+
+async function clearDirectoryContents(directory: Directory): Promise<void> {
+  if (!directory.exists) {
+    return;
+  }
+
+  const entries = directory.list();
+  for (const entry of entries) {
+    if (entry instanceof Directory) {
+      await clearDirectoryContents(entry);
+    }
+    await entry.delete();
+  }
+}
+
+export async function getStorageUsage(): Promise<{ cacheBytes: number; downloadBytes: number } | null> {
+  try {
+    const cacheDir = new Directory(Paths.cache);
+    const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
+
+    const [cacheBytes, downloadBytes] = await Promise.all([
+      getDirectorySize(cacheDir),
+      getDirectorySize(downloadDir),
+    ]);
+
+    return { cacheBytes, downloadBytes };
+  } catch (error) {
+    console.error('[Storage] Failed to get storage usage:', error);
+    return null;
+  }
+}
+
+export async function clearCacheStorage(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cacheDir = new Directory(Paths.cache);
+    await clearDirectoryContents(cacheDir);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '清理缓存失败' };
+  }
+}
+
+export async function clearDownloadStorage(): Promise<{ success: boolean; error?: string }> {
+  try {
+    const downloadDir = new Directory(Paths.document, DOWNLOAD_DIR);
+    await clearDirectoryContents(downloadDir);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '清理下载失败' };
+  }
+}
