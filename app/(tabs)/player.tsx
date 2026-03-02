@@ -38,9 +38,10 @@ function ScrollingText({
   pause?: number;
   gap?: number;
 }) {
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [contentWidth, setContentWidth] = useState(0);
+  const [measuredWidth, setMeasuredWidth] = useState(0);
   const translateX = useRef(new Animated.Value(0)).current;
-  const containerWidth = useRef(0);
-  const textWidth = useRef(0);
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
   const stopAnimation = useCallback(() => {
@@ -50,53 +51,93 @@ function ScrollingText({
   }, [translateX]);
 
   const startAnimation = useCallback(() => {
-    animationRef.current?.stop();
-    if (!containerWidth.current || !textWidth.current) {
+    stopAnimation();
+    const widthToUse = measuredWidth || contentWidth;
+    if (!containerWidth || !widthToUse || widthToUse <= containerWidth) {
       return;
     }
-    if (textWidth.current <= containerWidth.current) {
-      translateX.setValue(0);
-      return;
-    }
-    const distance = textWidth.current - containerWidth.current + gap;
+
+    const distance = widthToUse + gap;
     const duration = (distance / speed) * 1000;
     translateX.setValue(0);
     animationRef.current = Animated.loop(
       Animated.sequence([
         Animated.delay(delay),
-        Animated.timing(translateX, { toValue: -distance, duration, useNativeDriver: true }),
+        Animated.timing(translateX, {
+          toValue: -distance,
+          duration,
+          useNativeDriver: true,
+        }),
         Animated.delay(pause),
         Animated.timing(translateX, { toValue: 0, duration: 0, useNativeDriver: true }),
       ])
     );
     animationRef.current.start();
-  }, [delay, gap, pause, speed, translateX]);
+  }, [containerWidth, contentWidth, delay, gap, measuredWidth, pause, speed, stopAnimation, translateX]);
 
   useEffect(() => {
-    stopAnimation();
-    const timer = setTimeout(startAnimation, 0);
-    return () => {
-      clearTimeout(timer);
-      stopAnimation();
-    };
+    startAnimation();
+    return stopAnimation;
   }, [startAnimation, stopAnimation, text]);
+
+  const handleContainerLayout = useCallback((event: { nativeEvent: { layout: { width: number } } }) => {
+    const width = event.nativeEvent.layout.width;
+    if (width !== containerWidth) {
+      setContainerWidth(width);
+    }
+  }, [containerWidth]);
+
+  const handleTextLayout = useCallback((event: { nativeEvent: { layout: { width: number } } }) => {
+    const width = event.nativeEvent.layout.width;
+    if (width !== contentWidth) {
+      setContentWidth(width);
+    }
+  }, [contentWidth]);
+
+  const handleHiddenTextLayout = useCallback((event: { nativeEvent: { lines?: { width: number }[] } }) => {
+    const line = event.nativeEvent.lines?.[0];
+    if (line?.width && line.width !== measuredWidth) {
+      setMeasuredWidth(line.width);
+    }
+  }, [measuredWidth]);
+
+  const widthToUse = measuredWidth || contentWidth;
+  const shouldScroll = widthToUse > containerWidth;
+  const marqueeTextStyle = shouldScroll && widthToUse ? { width: widthToUse, minWidth: widthToUse, flexShrink: 0 } : { flexShrink: 0 };
 
   return (
     <View
       style={[containerStyle, { overflow: 'hidden' }]}
-      onLayout={(e) => {
-        containerWidth.current = e.nativeEvent.layout.width;
-        startAnimation();
-      }}
+      onLayout={handleContainerLayout}
     >
+      <Text
+        style={[textStyle, { position: 'absolute', opacity: 0, left: 0, top: 0, width: 10000 }]}
+        numberOfLines={1}
+        onTextLayout={handleHiddenTextLayout}
+      >
+        {text}
+      </Text>
       <Animated.View
-        style={{ transform: [{ translateX }] }}
-        onLayout={(e) => {
-          textWidth.current = e.nativeEvent.layout.width;
-          startAnimation();
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          transform: [{ translateX }],
         }}
       >
-        <Text style={textStyle} numberOfLines={1}>{text}</Text>
+        <Text
+          style={[textStyle, marqueeTextStyle]}
+          numberOfLines={1}
+          ellipsizeMode="clip"
+          onLayout={handleTextLayout}
+        >
+          {text}
+        </Text>
+        {shouldScroll && (
+          <>
+            <View style={{ width: gap }} />
+            <Text style={[textStyle, marqueeTextStyle]} numberOfLines={1} ellipsizeMode="clip">{text}</Text>
+          </>
+        )}
       </Animated.View>
     </View>
   );
@@ -599,10 +640,12 @@ export default function PlayerScreen() {
             <ScrollingText
               text={currentTrack.title || currentTrack.bvid}
               textStyle={styles.miniPlayerTitle}
+              containerStyle={styles.miniPlayerMarquee}
             />
             <ScrollingText
               text={currentTrack.author || '未知UP主'}
               textStyle={styles.miniPlayerArtist}
+              containerStyle={styles.miniPlayerMarquee}
             />
           </View>
           <TouchableOpacity 
@@ -887,6 +930,7 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   miniPlayerArtworkImage: { width: 40, height: 40 },
   miniPlayerInfo: { flex: 1, marginHorizontal: 12, overflow: 'hidden' },
+  miniPlayerMarquee: { width: '100%' },
   miniPlayerTitle: { fontSize: 14, color: isDark ? '#F9FAFB' : '#111827', fontWeight: '600' },
   miniPlayerArtist: { fontSize: 12, color: isDark ? '#9CA3AF' : '#6B7280', marginTop: 2 },
   miniPlayerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center' },
