@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import Toast, { BaseToast, BaseToastProps, ErrorToast } from 'react-native-toast-message';
 
 // 自定义成功 Toast
@@ -12,7 +13,7 @@ const SuccessToastComponent = (props: BaseToastProps) => (
     text2Style={styles.text2}
     renderLeadingIcon={() => (
       <View style={styles.iconContainer}>
-        <Text style={styles.successIcon}>✓</Text>
+        <Feather name="check" size={20} color={styles.successIcon.color} />
       </View>
     )}
   />
@@ -28,7 +29,7 @@ const ErrorToastComponent = (props: BaseToastProps) => (
     text2Style={styles.text2}
     renderLeadingIcon={() => (
       <View style={styles.iconContainer}>
-        <Text style={styles.errorIcon}>✕</Text>
+        <Feather name="x" size={20} color={styles.errorIcon.color} />
       </View>
     )}
   />
@@ -44,7 +45,7 @@ const InfoToastComponent = (props: BaseToastProps) => (
     text2Style={styles.text2}
     renderLeadingIcon={() => (
       <View style={styles.iconContainer}>
-        <Text style={styles.infoIcon}>ℹ</Text>
+        <Feather name="info" size={20} color={styles.infoIcon.color} />
       </View>
     )}
   />

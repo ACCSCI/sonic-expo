@@ -12,6 +12,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Feather } from '@expo/vector-icons';
 import { parseInput } from '../../src/utils/parser';
 import { usePlayer } from '../../src/context/PlayerContext';
 import { getVideoInfo } from '../../src/services/bilibili';
@@ -225,7 +226,10 @@ export default function ParseScreen() {
 
         {parsedResult && (
           <View style={styles.resultCard}>
-            <Text style={styles.resultTitle}>✓ 解析成功</Text>
+            <View style={styles.resultTitleRow}>
+              <Feather name="check-circle" size={18} color="#10B981" />
+              <Text style={styles.resultTitle}>解析成功</Text>
+            </View>
             <View style={styles.resultRow}>
               <Text style={styles.resultLabel}>BV号:</Text>
               <Text style={styles.resultValue}>{parsedResult.bvid}</Text>
@@ -363,11 +367,11 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  resultTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
   resultTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#10B981',
-    marginBottom: 16,
   },
   resultRow: {
     flexDirection: 'row',

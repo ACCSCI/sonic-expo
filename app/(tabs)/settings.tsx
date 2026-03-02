@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
 import { usePlayer } from '../../src/context/PlayerContext';
 import { clearCacheStorage, clearDownloadStorage, getStorageUsage } from '../../src/services/download';
@@ -160,7 +161,7 @@ export default function SettingsScreen() {
             {isClearingCache ? (
               <ActivityIndicator size="small" color={isDark ? '#F9FAFB' : '#3B82F6'} />
             ) : (
-              <Text style={[styles.settingArrow, isDark && styles.arrowDark]}>›</Text>
+              <Feather name="chevron-right" size={18} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
             )}
           </TouchableOpacity>
           <TouchableOpacity
@@ -172,7 +173,7 @@ export default function SettingsScreen() {
             {isClearingDownloads ? (
               <ActivityIndicator size="small" color={isDark ? '#F9FAFB' : '#3B82F6'} />
             ) : (
-              <Text style={[styles.settingArrow, isDark && styles.arrowDark]}>›</Text>
+              <Feather name="chevron-right" size={18} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
             )}
           </TouchableOpacity>
         </View>
@@ -181,7 +182,7 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionTitle, isDark && styles.sectionTitleDark]}>关于</Text>
           <TouchableOpacity style={styles.settingItem} onPress={handleAbout}>
             <Text style={[styles.settingText, isDark && styles.textDark]}>关于应用</Text>
-            <Text style={[styles.settingArrow, isDark && styles.arrowDark]}>›</Text>
+            <Feather name="chevron-right" size={18} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
           </TouchableOpacity>
           <View style={styles.settingItem}>
             <Text style={[styles.settingText, isDark && styles.textDark]}>版本</Text>
@@ -216,8 +217,6 @@ const styles = StyleSheet.create({
   settingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
   settingItemDisabled: { opacity: 0.6 },
   settingText: { flex: 1, fontSize: 16, color: '#111827' },
-  settingArrow: { fontSize: 20, color: '#9CA3AF' },
-  arrowDark: { color: '#9CA3AF' },
   settingValue: { fontSize: 16, color: '#6B7280' },
   valueDark: { color: '#9CA3AF' },
 });

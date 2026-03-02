@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, 
   Image, Modal, Animated, Dimensions, Alert, PanResponder
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePlayer, QueuedTrack } from '../../src/context/PlayerContext';
@@ -123,9 +124,11 @@ function QueueItem({
           {downloadStatus === 'downloading' ? (
             <ActivityIndicator size="small" color="#3B82F6" />
           ) : (
-            <Text style={styles.iconButtonText}>
-              {downloadStatus === 'downloaded' ? '✓' : '⬇️'}
-            </Text>
+            <Feather
+              name={downloadStatus === 'downloaded' ? 'check' : 'download'}
+              size={16}
+              color={downloadStatus === 'downloaded' ? '#10B981' : isDark ? '#F9FAFB' : '#111827'}
+            />
           )}
         </TouchableOpacity>
 
@@ -488,13 +491,14 @@ export default function PlayerScreen() {
     return `${mins}:${remainingSecs.toString().padStart(2, '0')}`;
   };
 
-  const getRepeatModeIcon = () => {
+  const getRepeatModeIconName = () => {
     switch (repeatMode) {
-      case 'off': return '➡️';
-      case 'all': return '🔁';
-      case 'one': return '🔂';
-      case 'shuffle': return '🔀';
-      default: return '➡️';
+      case 'shuffle': return 'shuffle';
+      case 'off':
+      case 'all':
+      case 'one':
+      default:
+        return 'repeat';
     }
   };
 
@@ -513,7 +517,7 @@ export default function PlayerScreen() {
             {videoInfo?.artwork ? (
               <Image source={{ uri: videoInfo.artwork }} style={styles.miniPlayerArtworkImage} resizeMode="cover" />
             ) : (
-              <Text style={styles.miniPlayerArtworkText}>🎵</Text>
+              <Feather name="music" size={20} color={isDark ? '#F9FAFB' : '#6B7280'} />
             )}
           </View>
           <View style={styles.miniPlayerInfo}>
@@ -530,7 +534,12 @@ export default function PlayerScreen() {
             {isRestoring ? (
               <ActivityIndicator size="small" color="#3B82F6" />
             ) : (
-              <Text style={styles.miniPlayerButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+              <Feather
+                name={isPlaying ? 'pause' : 'play'}
+                size={20}
+                color="#FFFFFF"
+                style={!isPlaying ? styles.playIconOffset : undefined}
+              />
             )}
           </TouchableOpacity>
         </TouchableOpacity>
@@ -565,7 +574,7 @@ export default function PlayerScreen() {
               style={styles.closeButton}
               onPress={() => setIsFullPlayerVisible(false)}
             >
-              <Text style={styles.closeButtonText}>✕</Text>
+              <Feather name="x" size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
             <View style={styles.fullPlayerContent}>
@@ -573,7 +582,7 @@ export default function PlayerScreen() {
                 {videoInfo?.artwork ? (
                   <Image source={{ uri: videoInfo.artwork }} style={styles.fullPlayerArtworkImage} resizeMode="cover" />
                 ) : (
-                  <Text style={styles.fullPlayerArtworkText}>🎵</Text>
+                  <Feather name="music" size={80} color="#9CA3AF" />
                 )}
               </View>
 
@@ -630,7 +639,7 @@ export default function PlayerScreen() {
                   onPress={handlePreviousTrack}
                   disabled={!hasPreviousTrack || isLoading || isRestoring}
                 >
-                  <Text style={styles.fullPlayerControlButtonText}>⏮</Text>
+                  <Feather name="skip-back" size={28} color="#FFFFFF" />
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
@@ -641,7 +650,12 @@ export default function PlayerScreen() {
                   {isRestoring ? (
                     <ActivityIndicator size="large" color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.fullPlayerPlayButtonText}>{isPlaying ? '⏸' : '▶'}</Text>
+                    <Feather
+                      name={isPlaying ? 'pause' : 'play'}
+                      size={48}
+                      color="#FFFFFF"
+                      style={!isPlaying ? styles.playIconOffset : undefined}
+                    />
                   )}
                 </TouchableOpacity>
                 
@@ -650,7 +664,7 @@ export default function PlayerScreen() {
                   onPress={() => handleNextTrack()}
                   disabled={!hasNextTrack || isLoading || isRestoring}
                 >
-                  <Text style={styles.fullPlayerControlButtonText}>⏭</Text>
+                  <Feather name="skip-forward" size={28} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
 
@@ -659,7 +673,19 @@ export default function PlayerScreen() {
                   style={styles.repeatModeButton}
                   onPress={toggleRepeatMode}
                 >
-                  <Text style={styles.repeatModeIcon}>{getRepeatModeIcon()}</Text>
+                  <View style={styles.repeatModeIconWrapper}>
+                    <Feather
+                      name={getRepeatModeIconName()}
+                      size={20}
+                      color={repeatMode === 'off' ? '#9CA3AF' : '#FFFFFF'}
+                    />
+                    {repeatMode === 'one' && (
+                      <View style={styles.repeatBadge}>
+                        <Text style={styles.repeatBadgeText}>1</Text>
+                      </View>
+                    )}
+                    {repeatMode === 'off' && <View style={styles.repeatOffSlash} />}
+                  </View>
                 </TouchableOpacity>
               </View>
             </View>
@@ -672,11 +698,14 @@ export default function PlayerScreen() {
   return (
     <SafeAreaView style={styles.container}>
       {/* 网络状态提示 */}
-      {!isOnline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineBannerText}>⚠️ 离线模式 - 仅可播放已下载歌曲</Text>
-        </View>
-      )}
+        {!isOnline && (
+          <View style={styles.offlineBanner}>
+            <View style={styles.offlineBannerContent}>
+              <Feather name="alert-triangle" size={14} color="#FFFFFF" />
+              <Text style={styles.offlineBannerText}>离线模式 - 仅可播放已下载歌曲</Text>
+            </View>
+          </View>
+        )}
       
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <Text style={styles.title}>播放列表</Text>
@@ -719,6 +748,7 @@ export default function PlayerScreen() {
 const getStyles = (isDark: boolean) => StyleSheet.create({
   container: { flex: 1, backgroundColor: isDark ? '#1F2937' : '#F3F4F6' },
   offlineBanner: { backgroundColor: '#F59E0B', padding: 8, alignItems: 'center' },
+  offlineBannerContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   offlineBannerText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
   scrollView: { flex: 1 },
   content: { padding: 16, paddingBottom: 100 },
@@ -741,7 +771,6 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   iconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? '#4B5563' : '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
   iconButtonDownloaded: { backgroundColor: '#D1FAE5' },
   iconButtonLoading: { backgroundColor: '#DBEAFE' },
-  iconButtonText: { fontSize: 16 },
   
   // 播放按钮
   playButton: { flex: 1, backgroundColor: '#3B82F6', borderRadius: 8, paddingVertical: 10, alignItems: 'center' },
@@ -767,11 +796,9 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   miniPlayerArtwork: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E5E7EB', overflow: 'hidden' },
   miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   miniPlayerArtworkImage: { width: 40, height: 40 },
-  miniPlayerArtworkText: { fontSize: 20 },
   miniPlayerInfo: { flex: 1, marginHorizontal: 12, overflow: 'hidden' },
   miniPlayerText: { fontSize: 14, color: isDark ? '#F9FAFB' : '#111827', fontWeight: '500' },
   miniPlayerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center' },
-  miniPlayerButtonText: { fontSize: 18, color: '#FFFFFF' },
   
   // 完整播放器
   fullPlayerOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' },
@@ -779,12 +806,10 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   fullPlayerBackground: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.6 },
   fullPlayerBackgroundOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.4)' },
   closeButton: { position: 'absolute', top: 50, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center' },
-  closeButtonText: { fontSize: 20, color: '#FFFFFF', fontWeight: '600' },
   fullPlayerContent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   fullPlayerArtwork: { width: 280, height: 280, borderRadius: 16, backgroundColor: '#374151', marginBottom: 40, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10, overflow: 'hidden' },
   fullPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   fullPlayerArtworkImage: { width: 280, height: 280 },
-  fullPlayerArtworkText: { fontSize: 80 },
   fullPlayerInfo: { alignItems: 'center', marginBottom: 40, width: '100%' },
   fullPlayerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF', textAlign: 'center', marginBottom: 8 },
   fullPlayerArtist: { fontSize: 16, color: '#9CA3AF', textAlign: 'center' },
@@ -797,10 +822,12 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   fullPlayerTimeText: { fontSize: 13, color: '#9CA3AF' },
   fullPlayerControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   fullPlayerPlayButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 10 },
-  fullPlayerPlayButtonText: { fontSize: 36, color: '#FFFFFF' },
   fullPlayerControlButton: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255, 255, 255, 0.2)', alignItems: 'center', justifyContent: 'center', marginHorizontal: 16 },
-  fullPlayerControlButtonText: { fontSize: 24, color: '#FFFFFF' },
   bottomControlsContainer: { flexDirection: 'row', justifyContent: 'center', width: '100%', paddingHorizontal: 40, marginTop: 20 },
   repeatModeButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255, 255, 255, 0.15)', alignItems: 'center', justifyContent: 'center' },
-  repeatModeIcon: { fontSize: 20 },
+  playIconOffset: { transform: [{ translateX: 2 }] },
+  repeatModeIconWrapper: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  repeatBadge: { position: 'absolute', right: -2, bottom: -2, backgroundColor: '#FFFFFF', borderRadius: 6, paddingHorizontal: 2 },
+  repeatBadgeText: { fontSize: 9, color: '#111827', fontWeight: '700' },
+  repeatOffSlash: { position: 'absolute', width: 18, height: 2, backgroundColor: '#9CA3AF', transform: [{ rotate: '-45deg' }] },
 });
