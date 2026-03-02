@@ -4,7 +4,7 @@ import {
   Image, Modal, Animated, Dimensions, Alert, PanResponder
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { usePlayer, QueuedTrack } from '../../src/context/PlayerContext';
 import { getVideoInfo, getAudioUrl } from '../../src/services/bilibili';
@@ -167,6 +167,7 @@ export default function PlayerScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const styles = getStyles(isDark);
+  const insets = useSafeAreaInsets();
 
   const { 
     queue, removeTrack, currentTrack, setCurrentTrack,
@@ -695,6 +696,13 @@ export default function PlayerScreen() {
     );
   };
 
+  const tabBarHeight = 68;
+  const miniPlayerGap = 0;
+  const miniPlayerBottomOffset = tabBarHeight + miniPlayerGap + insets.bottom;
+  const contentBottomPadding = 100 + tabBarHeight + miniPlayerGap + insets.bottom;
+
+  const miniPlayer = renderMiniPlayer();
+
   return (
     <SafeAreaView style={styles.container}>
       {/* 网络状态提示 */}
@@ -707,7 +715,7 @@ export default function PlayerScreen() {
           </View>
         )}
       
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, { paddingBottom: contentBottomPadding }] }>
         <Text style={styles.title}>播放列表</Text>
         
         {queue.length === 0 ? (
@@ -739,7 +747,11 @@ export default function PlayerScreen() {
         )}
       </ScrollView>
 
-      {renderMiniPlayer()}
+      {miniPlayer && (
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: miniPlayerBottomOffset }}>
+          {miniPlayer}
+        </View>
+      )}
       {renderFullPlayer()}
     </SafeAreaView>
   );
@@ -791,8 +803,8 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   listTitle: { fontSize: 16, fontWeight: '600', color: isDark ? '#9CA3AF' : '#374151', marginBottom: 8 },
   
   // 迷你播放器
-  miniPlayerContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, backgroundColor: 'transparent' },
-  miniPlayer: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#374151' : '#FFFFFF', borderRadius: 25, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
+  miniPlayerContainer: { paddingHorizontal: 20, paddingBottom: 0, paddingTop: 8, backgroundColor: 'transparent' },
+  miniPlayer: { flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? '#374151' : '#FFFFFF', borderRadius: 32, paddingHorizontal: 12, paddingVertical: 8, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 10 },
   miniPlayerArtwork: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E5E7EB', overflow: 'hidden' },
   miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   miniPlayerArtworkImage: { width: 40, height: 40 },
