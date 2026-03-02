@@ -190,6 +190,7 @@ export default function PlayerScreen() {
   const [dragPosition, setDragPosition] = useState(0);
   const [downloadingTracks, setDownloadingTracks] = useState<Set<string>>(new Set());
   const progressBarRef = useRef<View>(null);
+  const lastCompletedTrackId = useRef<string | null>(null);
   
   const isInitialized = useRef(false);
 
@@ -361,6 +362,41 @@ export default function PlayerScreen() {
       await loadTrack(prevTrack);
     }
   };
+
+  useEffect(() => {
+    if (playerState !== 'completed' || !currentTrack) return;
+    if (lastCompletedTrackId.current === currentTrack.id) return;
+
+    lastCompletedTrackId.current = currentTrack.id;
+
+    const handleCompletion = async () => {
+      if (isLoading || isRestoring) return;
+
+      switch (repeatMode) {
+        case 'one':
+          await playerStore.dispatch({ type: 'PLAY' });
+          break;
+        case 'all':
+        case 'shuffle':
+          await handleNextTrack();
+          break;
+        case 'off':
+        default:
+          if (hasNextTrack) {
+            await handleNextTrack();
+          }
+          break;
+      }
+    };
+
+    handleCompletion();
+  }, [playerState, currentTrack, repeatMode, hasNextTrack, isLoading, isRestoring, handleNextTrack]);
+
+  useEffect(() => {
+    if (playerState !== 'completed') {
+      lastCompletedTrackId.current = null;
+    }
+  }, [playerState]);
 
   const clampProgressPosition = (position: number) => {
     return Math.max(0, Math.min(playerDuration, position));
