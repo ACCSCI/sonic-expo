@@ -303,16 +303,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
-  // 保存队列状态到存储
+  // 保存队列状态到存储（不包含播放进度，避免频繁保存）
   useEffect(() => {
     saveQueueState({
       queue,
       currentTrackId: currentTrack?.id || null,
-      position: playerPosition,
+      position: 0, // 播放进度由专门的防抖机制保存
       repeatMode,
       downloadedTrackIds: Array.from(downloadedTracks),
     });
-  }, [queue, currentTrack, playerPosition, repeatMode, downloadedTracks]);
+  }, [queue, currentTrack, repeatMode, downloadedTracks]);
 
   const currentTrackIndex = currentTrack
     ? queue.findIndex((t) => t.id === currentTrack.id)
