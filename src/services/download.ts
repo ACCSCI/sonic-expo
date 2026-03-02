@@ -13,47 +13,49 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+const DOWNLOAD_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Referer': 'https://www.bilibili.com',
+  'Origin': 'https://www.bilibili.com',
+  'Accept': '*/*',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'Connection': 'keep-alive',
+};
+
 async function downloadWithRetry(
   audioUrl: string,
+  destination: File,
   retryCount: number = 0
-): Promise<{ success: boolean; data?: Uint8Array; error?: string }> {
+): Promise<{ success: boolean; error?: string }> {
   try {
     console.log(`尝试下载 (第 ${retryCount + 1}/${MAX_RETRIES} 次):`, audioUrl.substring(0, 80));
-    
-    const response = await fetch(audioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://www.bilibili.com',
-        'Origin': 'https://www.bilibili.com',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Connection': 'keep-alive',
-      },
+
+    const file = await File.downloadFileAsync(audioUrl, destination, {
+      headers: DOWNLOAD_HEADERS,
+      idempotent: true,
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-    
-    const arrayBuffer = await response.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    if (uint8Array.length === 0) {
+
+    if (!file.exists || file.size === 0) {
       throw new Error('下载内容为空');
     }
-    
-    console.log('下载成功，文件大小:', uint8Array.length);
-    return {
-      success: true,
-      data: uint8Array,
-    };
+
+    console.log('下载成功，文件大小:', file.size);
+    return { success: true };
   } catch (error) {
     console.log(`下载失败 (第 ${retryCount + 1} 次):`, error);
+
+    if (destination.exists) {
+      try {
+        await destination.delete();
+      } catch (deleteError) {
+        console.log('清理下载残留失败:', deleteError);
+      }
+    }
     
     if (retryCount < MAX_RETRIES - 1) {
       console.log(`${RETRY_DELAY}ms 后重试...`);
       await sleep(RETRY_DELAY);
-      return downloadWithRetry(audioUrl, retryCount + 1);
+      return downloadWithRetry(audioUrl, destination, retryCount + 1);
     }
     
     return {
@@ -64,15 +66,16 @@ async function downloadWithRetry(
 }
 
 async function downloadWithFallback(
-  audioUrls: string[]
-): Promise<{ success: boolean; data?: Uint8Array; error?: string }> {
+  audioUrls: string[],
+  destination: File
+): Promise<{ success: boolean; error?: string }> {
   let lastError = '下载失败';
 
   for (let index = 0; index < audioUrls.length; index += 1) {
     const audioUrl = audioUrls[index];
     console.log(`尝试下载地址 (${index + 1}/${audioUrls.length}):`, audioUrl.substring(0, 80));
 
-    const result = await downloadWithRetry(audioUrl);
+    const result = await downloadWithRetry(audioUrl, destination);
     if (result.success) {
       return result;
     }
@@ -128,18 +131,15 @@ export async function downloadAudioToCache(
     console.log('开始下载音频到缓存:', localPath);
     
     // 使用重试机制 + 多 URL 兜底下载
-    const downloadResult = await downloadWithFallback(audioUrls);
+    const downloadResult = await downloadWithFallback(audioUrls, destFile);
     
-    if (!downloadResult.success || !downloadResult.data) {
+    if (!downloadResult.success) {
       return {
         success: false,
         error: downloadResult.error || '下载失败',
       };
     }
-    
-    // 写入文件
-    await destFile.write(downloadResult.data);
-    
+
     // 验证文件是否写入成功
     if (!destFile.exists || destFile.size === 0) {
       return {
@@ -201,17 +201,15 @@ export async function downloadToPermanentStorage(
     
     console.log('开始下载音频到永久存储:', destFile.uri);
     
-    const downloadResult = await downloadWithFallback(audioUrls);
+    const downloadResult = await downloadWithFallback(audioUrls, destFile);
     
-    if (!downloadResult.success || !downloadResult.data) {
+    if (!downloadResult.success) {
       return {
         success: false,
         error: downloadResult.error || '下载失败',
       };
     }
-    
-    await destFile.write(downloadResult.data);
-    
+
     if (!destFile.exists || destFile.size === 0) {
       return {
         success: false,
