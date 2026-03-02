@@ -2,9 +2,9 @@
   "expo": {
     "name": "sonic",
     "slug": "sonic",
-    "version": "1.0.0",
+    "version": "1.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./logo/1024×1024.png",
     "scheme": "sonic",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -17,19 +17,21 @@
       }
     },
     "android": {
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./logo/1024×1024.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.WAKE_LOCK"
-      ]
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.accsci.sonic"
     },
     "web": {
       "output": "static",
@@ -49,11 +51,21 @@
           }
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "author": "加速科学(ACCSCI)",
+      "projectHomepage": "https://github.com/ACCSCI/sonic-expo",
+      "authorHomepage": "https://github.com/ACCSCI",
+      "router": {},
+      "eas": {
+        "projectId": "5de0a64d-f659-471e-a6f3-4ecbfb4c7db4"
+      }
     }
   }
 }

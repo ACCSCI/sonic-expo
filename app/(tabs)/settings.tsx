@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, ActivityIndicator, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, ActivityIndicator, Alert, Linking } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
 import { usePlayer } from '../../src/context/PlayerContext';
@@ -16,6 +16,7 @@ export default function SettingsScreen() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
   const { clearDownloadedTracks } = usePlayer();
+  const insets = useSafeAreaInsets();
 
   const [storageUsage, setStorageUsage] = useState<StorageUsage>({ cacheBytes: 0, downloadBytes: 0 });
   const [isLoadingStorage, setIsLoadingStorage] = useState(true);
@@ -101,13 +102,20 @@ export default function SettingsScreen() {
     });
   }, [clearDownloadedTracks, confirmTwice, isClearingDownloads, refreshStorageUsage]);
 
-  const handleAbout = () => {
-    showToast.info('关于', 'Bilibili 音乐播放器 v1.0');
-  };
+  const handleOpenUrl = useCallback(async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      showToast.error('打开失败', error instanceof Error ? error.message : '无法打开链接');
+    }
+  }, []);
+
+  const tabBarHeight = 68;
+  const contentBottomPadding = 16 + tabBarHeight + insets.bottom;
 
   return (
     <SafeAreaView style={[styles.container, isDark && styles.containerDark]}>
-      <ScrollView style={styles.scrollView}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: contentBottomPadding }}>
         <Text style={[styles.title, isDark && styles.textDark]}>设置</Text>
         
         <View style={[styles.section, isDark && styles.sectionDark]}>
@@ -180,14 +188,38 @@ export default function SettingsScreen() {
 
         <View style={[styles.section, isDark && styles.sectionDark]}>
           <Text style={[styles.sectionTitle, isDark && styles.sectionTitleDark]}>关于</Text>
-          <TouchableOpacity style={styles.settingItem} onPress={handleAbout}>
-            <Text style={[styles.settingText, isDark && styles.textDark]}>关于应用</Text>
-            <Feather name="chevron-right" size={18} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
-          </TouchableOpacity>
+          <View style={styles.settingItem}>
+            <Text style={[styles.settingText, isDark && styles.textDark]}>应用名称</Text>
+            <Text style={[styles.settingValue, isDark && styles.valueDark]}>sonic</Text>
+          </View>
           <View style={styles.settingItem}>
             <Text style={[styles.settingText, isDark && styles.textDark]}>版本</Text>
-            <Text style={[styles.settingValue, isDark && styles.valueDark]}>1.0.0</Text>
+            <Text style={[styles.settingValue, isDark && styles.valueDark]}>1.0</Text>
           </View>
+          <View style={styles.settingItem}>
+            <Text style={[styles.settingText, isDark && styles.textDark]}>作者</Text>
+            <Text style={[styles.settingValue, isDark && styles.valueDark]}>加速科学(ACCSCI)</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => handleOpenUrl('https://github.com/ACCSCI/sonic-expo')}
+          >
+            <Text style={[styles.settingText, isDark && styles.textDark]}>项目主页</Text>
+            <View style={styles.settingIconRow}>
+              <Text style={[styles.settingValue, isDark && styles.valueDark]}>github.com/ACCSCI/sonic-expo</Text>
+              <Feather name="external-link" size={16} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => handleOpenUrl('https://github.com/ACCSCI')}
+          >
+            <Text style={[styles.settingText, isDark && styles.textDark]}>作者主页</Text>
+            <View style={styles.settingIconRow}>
+              <Text style={[styles.settingValue, isDark && styles.valueDark]}>github.com/ACCSCI</Text>
+              <Feather name="external-link" size={16} color={isDark ? '#9CA3AF' : '#9CA3AF'} />
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -217,6 +249,7 @@ const styles = StyleSheet.create({
   settingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
   settingItemDisabled: { opacity: 0.6 },
   settingText: { flex: 1, fontSize: 16, color: '#111827' },
+  settingIconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   settingValue: { fontSize: 16, color: '#6B7280' },
   valueDark: { color: '#9CA3AF' },
 });
