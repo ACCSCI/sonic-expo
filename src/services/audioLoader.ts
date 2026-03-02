@@ -59,12 +59,13 @@ async function downloadAndLoadAudio(
   metadata: VideoMetadata
 ): Promise<AudioLoadResult> {
   const audioResult = await getAudioUrl(parseInt(metadata.cid), track.bvid);
-  if (!audioResult.success || !audioResult.url) {
+  const audioUrls = audioResult.urls || (audioResult.url ? [audioResult.url] : []);
+  if (!audioResult.success || audioUrls.length === 0) {
     return { success: false, error: audioResult.error || '获取音频失败' };
   }
 
   const downloadResult = await downloadAudioToCache(
-    audioResult.url,
+    audioUrls,
     `audio_${track.bvid}_${metadata.cid}`
   );
 

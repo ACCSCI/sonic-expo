@@ -24,6 +24,7 @@ export interface ParseResult {
 export interface AudioUrlResult {
   success: boolean;
   url?: string;
+  urls?: string[];
   error?: string;
 }
 

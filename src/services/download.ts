@@ -63,18 +63,40 @@ async function downloadWithRetry(
   }
 }
 
+async function downloadWithFallback(
+  audioUrls: string[]
+): Promise<{ success: boolean; data?: Uint8Array; error?: string }> {
+  let lastError = '下载失败';
+
+  for (let index = 0; index < audioUrls.length; index += 1) {
+    const audioUrl = audioUrls[index];
+    console.log(`尝试下载地址 (${index + 1}/${audioUrls.length}):`, audioUrl.substring(0, 80));
+
+    const result = await downloadWithRetry(audioUrl);
+    if (result.success) {
+      return result;
+    }
+
+    lastError = result.error || lastError;
+  }
+
+  return { success: false, error: lastError };
+}
+
 // ============================================
 // 缓存目录（临时播放）
 // ============================================
 
 export async function downloadAudioToCache(
-  audioUrl: string, 
+  audioUrl: string | string[], 
   filename: string,
   forceDownload: boolean = false
 ): Promise<{ success: boolean; localPath?: string; error?: string }> {
   try {
     // 验证 URL
-    if (!audioUrl || audioUrl.length < 10) {
+    const audioUrls = Array.isArray(audioUrl) ? audioUrl.filter(url => typeof url === 'string' && url.length > 0) : [audioUrl];
+
+    if (audioUrls.length === 0 || audioUrls[0].length < 10) {
       return {
         success: false,
         error: '音频 URL 无效',
@@ -105,8 +127,8 @@ export async function downloadAudioToCache(
     
     console.log('开始下载音频到缓存:', localPath);
     
-    // 使用重试机制下载
-    const downloadResult = await downloadWithRetry(audioUrl);
+    // 使用重试机制 + 多 URL 兜底下载
+    const downloadResult = await downloadWithFallback(audioUrls);
     
     if (!downloadResult.success || !downloadResult.data) {
       return {
@@ -142,7 +164,7 @@ export async function downloadAudioToCache(
 
 // 兼容旧函数名
 export async function downloadAudioToFile(
-  audioUrl: string, 
+  audioUrl: string | string[], 
   filename: string,
   onProgress?: (progress: number) => void,
   forceDownload: boolean = false
@@ -155,11 +177,13 @@ export async function downloadAudioToFile(
 // ============================================
 
 export async function downloadToPermanentStorage(
-  audioUrl: string,
+  audioUrl: string | string[],
   filename: string
 ): Promise<{ success: boolean; localPath?: string; error?: string }> {
   try {
-    if (!audioUrl || audioUrl.length < 10) {
+    const audioUrls = Array.isArray(audioUrl) ? audioUrl.filter(url => typeof url === 'string' && url.length > 0) : [audioUrl];
+
+    if (audioUrls.length === 0 || audioUrls[0].length < 10) {
       return {
         success: false,
         error: '音频 URL 无效',
@@ -177,7 +201,7 @@ export async function downloadToPermanentStorage(
     
     console.log('开始下载音频到永久存储:', destFile.uri);
     
-    const downloadResult = await downloadWithRetry(audioUrl);
+    const downloadResult = await downloadWithFallback(audioUrls);
     
     if (!downloadResult.success || !downloadResult.data) {
       return {

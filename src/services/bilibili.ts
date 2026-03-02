@@ -189,25 +189,43 @@ export async function getAudioUrl(cid: number, bvid: string, qn: number = 80): P
     const dash = data.data?.dash;
     if (dash && dash.audio && dash.audio.length > 0) {
       const audioStreams = dash.audio.sort((a: any, b: any) => b.id - a.id);
-      const audio = audioStreams[0];
-      // 优先使用 backupUrl，其次是 baseUrl
-      const audioUrl = (audio.backupUrl && audio.backupUrl[0]) || audio.baseUrl || audio.base_url;
-      console.log('音频 URL 获取成功');
-      console.log('音频 URL:', audioUrl?.substring(0, 100));
-      return {
-        success: true,
-        url: audioUrl,
-      };
+      const urls: string[] = [];
+
+      for (const audio of audioStreams) {
+        if (audio.baseUrl || audio.base_url) {
+          urls.push(audio.baseUrl || audio.base_url);
+        }
+        if (Array.isArray(audio.backupUrl)) {
+          urls.push(...audio.backupUrl);
+        } else if (Array.isArray(audio.backup_url)) {
+          urls.push(...audio.backup_url);
+        }
+      }
+
+      const uniqueUrls = Array.from(new Set(urls)).filter(url => typeof url === 'string' && url.length > 0);
+
+      if (uniqueUrls.length > 0) {
+        console.log('音频 URL 获取成功');
+        console.log('音频 URL:', uniqueUrls[0]?.substring(0, 100));
+        return {
+          success: true,
+          url: uniqueUrls[0],
+          urls: uniqueUrls,
+        };
+      }
     }
 
     // 备用：从 durl 获取
     if (data.data?.durl && data.data.durl.length > 0) {
-      const audioUrl = data.data.durl[0].url;
-      console.log('从 durl 获取音频 URL');
-      return {
-        success: true,
-        url: audioUrl,
-      };
+      const urls = data.data.durl.map((item: any) => item.url).filter((url: any) => typeof url === 'string' && url.length > 0);
+      if (urls.length > 0) {
+        console.log('从 durl 获取音频 URL');
+        return {
+          success: true,
+          url: urls[0],
+          urls,
+        };
+      }
     }
 
     return {

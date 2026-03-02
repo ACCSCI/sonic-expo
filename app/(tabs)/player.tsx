@@ -366,7 +366,8 @@ export default function PlayerScreen() {
         }
 
         const audioResult = await getAudioUrl(cid, video.bvid);
-        if (!audioResult.success || !audioResult.url) {
+        const audioUrls = audioResult.urls || (audioResult.url ? [audioResult.url] : []);
+        if (!audioResult.success || audioUrls.length === 0) {
           showToast.error('获取音频失败', audioResult.error || '未知错误');
           setIsLoading(false);
           if (autoSkipOnError && hasNextTrack) {
@@ -376,7 +377,7 @@ export default function PlayerScreen() {
         }
 
         // 下载到缓存并播放
-        const downloadResult = await downloadAudioToCache(audioResult.url, `audio_${video.bvid}_${cid}`);
+        const downloadResult = await downloadAudioToCache(audioUrls, `audio_${video.bvid}_${cid}`);
         if (!downloadResult.success || !downloadResult.localPath) {
           showToast.error('下载失败', downloadResult.error || '无法下载音频');
           setIsLoading(false);
@@ -554,12 +555,13 @@ export default function PlayerScreen() {
       }
       
       const audioResult = await getAudioUrl(cid, video.bvid);
-      if (!audioResult.success || !audioResult.url) {
+      const audioUrls = audioResult.urls || (audioResult.url ? [audioResult.url] : []);
+      if (!audioResult.success || audioUrls.length === 0) {
         showToast.error('获取音频失败', audioResult.error || '未知错误');
         return;
       }
       
-      const downloadResult = await downloadToPermanentStorage(audioResult.url, `audio_${video.bvid}_${cid}`);
+      const downloadResult = await downloadToPermanentStorage(audioUrls, `audio_${video.bvid}_${cid}`);
       
       if (downloadResult.success) {
         markTrackDownloaded(track.id);
