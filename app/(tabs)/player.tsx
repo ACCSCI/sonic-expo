@@ -170,7 +170,8 @@ export default function PlayerScreen() {
     hasNextTrack, hasPreviousTrack, skipToNext, playPreviousTrack,
     repeatMode, toggleRepeatMode,
     playerState, playerPosition, playerDuration, isPlaying,
-    isRestoring, restoredTrackMetadata
+    isRestoring, restoredTrackMetadata,
+    downloadedTracks, isTrackDownloaded, markTrackDownloaded, markTrackNotDownloaded
   } = usePlayer();
   
   const { isOnline } = useNetworkStatus();
@@ -180,7 +181,6 @@ export default function PlayerScreen() {
   const [videoInfo, setVideoInfo] = useState<{ title: string; author: string; artwork: string } | null>(null);
   const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
-  const [downloadedTracks, setDownloadedTracks] = useState<Set<string>>(new Set());
   const [downloadingTracks, setDownloadingTracks] = useState<Set<string>>(new Set());
   
   const isInitialized = useRef(false);
@@ -194,19 +194,6 @@ export default function PlayerScreen() {
     };
     init();
   }, []);
-
-  // 检查所有歌曲的下载状态
-  useEffect(() => {
-    const checkDownloaded = async () => {
-      const newDownloaded = new Set<string>();
-      for (const track of queue) {
-        const isDownloaded = await isAudioPermanentlyDownloaded(`audio_${track.bvid}_${track.page}`);
-        if (isDownloaded) newDownloaded.add(track.id);
-      }
-      setDownloadedTracks(newDownloaded);
-    };
-    checkDownloaded();
-  }, [queue]);
 
   // 同步恢复的元数据到 videoInfo
   useEffect(() => {
@@ -403,7 +390,7 @@ export default function PlayerScreen() {
       const downloadResult = await downloadToPermanentStorage(audioResult.url, `audio_${video.bvid}_${cid}`);
       
       if (downloadResult.success) {
-        setDownloadedTracks(prev => new Set(prev).add(track.id));
+        markTrackDownloaded(track.id);
         showToast.success('下载完成', '歌曲已保存到本地');
       } else {
         showToast.error('下载失败', downloadResult.error || '无法下载音频');
@@ -431,11 +418,7 @@ export default function PlayerScreen() {
           onPress: async () => {
             const success = await deletePermanentAudio(`audio_${track.bvid}_${track.page}`);
             if (success) {
-              setDownloadedTracks(prev => {
-                const next = new Set(prev);
-                next.delete(track.id);
-                return next;
-              });
+              markTrackNotDownloaded(track.id);
               showToast.success('已删除', '本地文件已删除');
             }
           }

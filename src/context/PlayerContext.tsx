@@ -283,21 +283,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setIsRestoring(false);
         }
 
-        // 扫描下载目录并匹配已下载的歌曲（使用 cid 精确匹配）
-        const downloadedFiles = await getDownloadedFilesInfo();
-        const downloadedTrackIds = new Set<string>();
-        
-        for (const file of downloadedFiles) {
-          // 在队列中查找匹配的 track（根据 cid 精确匹配）
-          const matchedTrack = savedQueue.queue.find((t) => t.cid === file.cid);
-          if (matchedTrack) {
-            downloadedTrackIds.add(matchedTrack.id);
-            console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id} (cid: ${file.cid})`);
+        // 优先使用保存的下载状态
+        if (savedQueue.downloadedTrackIds && savedQueue.downloadedTrackIds.length > 0) {
+          setDownloadedTracks(new Set(savedQueue.downloadedTrackIds));
+          console.log(`[PlayerContext] Restored downloaded tracks from storage: ${savedQueue.downloadedTrackIds.length}`);
+        } else {
+          // 回退到扫描文件系统（兼容旧版本）
+          const downloadedFiles = await getDownloadedFilesInfo();
+          const downloadedTrackIds = new Set<string>();
+          
+          for (const file of downloadedFiles) {
+            // 在队列中查找匹配的 track（根据 cid 精确匹配）
+            const matchedTrack = savedQueue.queue.find((t) => t.cid === file.cid);
+            if (matchedTrack) {
+              downloadedTrackIds.add(matchedTrack.id);
+              console.log(`[PlayerContext] Found downloaded track: ${matchedTrack.id} (cid: ${file.cid})`);
+            }
           }
+          
+          setDownloadedTracks(downloadedTrackIds);
+          console.log(`[PlayerContext] Total downloaded tracks: ${downloadedTrackIds.size}`);
         }
-        
-        setDownloadedTracks(downloadedTrackIds);
-        console.log(`[PlayerContext] Total downloaded tracks: ${downloadedTrackIds.size}`);
       }
     };
     init();
