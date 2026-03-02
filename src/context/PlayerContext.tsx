@@ -98,8 +98,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     new Set(),
   );
 
-  // 用于避免重复处理 completed 状态
-  const lastCompletedTrackId = useRef<string | null>(null);
   
   // 防抖保存进度的定时器
   const saveProgressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,50 +117,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setPlayerDuration(status.duration);
       setIsPlaying(status.state === "playing");
 
-      // 处理播放完成后的自动逻辑
-      if (status.state === "completed" && currentTrack) {
-        const trackId = currentTrack.id;
-
-        // 避免对同一首歌重复处理
-        if (lastCompletedTrackId.current === trackId) {
-          return;
+      if (status.track?.id) {
+        const nextTrack = queue.find((track) => track.id === status.track?.id) || null;
+        if (nextTrack && currentTrack?.id !== nextTrack.id) {
+          setCurrentTrackState(nextTrack);
         }
-        lastCompletedTrackId.current = trackId;
-
-        // 根据重复模式决定下一步
-        switch (repeatMode) {
-          case "one":
-            // 单曲循环：重新播放当前歌曲
-            console.log("[PlayerContext] Single loop: replaying current track");
-            playerStore.dispatch({ type: "PLAY" });
-            break;
-
-          case "all":
-            // 列表循环：播放下一首（会循环到第一首）
-            console.log("[PlayerContext] List loop: playing next track");
-            break;
-
-          case "shuffle":
-            // 随机模式：随机播放下一首
-            console.log("[PlayerContext] Shuffle: playing random track");
-            break;
-
-          case "off":
-          default:
-            // 不循环：停在当前位置
-            console.log("[PlayerContext] No loop: staying at end");
-            break;
-        }
-      }
-
-      // 当切换到新歌曲时，重置 completed 标记
-      if (status.state !== "completed") {
-        lastCompletedTrackId.current = null;
       }
     });
 
     return unsubscribe;
-  }, [currentTrack, repeatMode]);
+  }, [queue, currentTrack]);
 
   // 保存进度到存储
   const saveCurrentProgress = useCallback(async () => {

@@ -1,4 +1,15 @@
-import { createAudioPlayer, setAudioModeAsync, AudioPlayer, AudioStatus } from 'expo-audio';
+import { AppState, AppStateStatus } from 'react-native';
+import TrackPlayer, {
+  Event,
+  State as TrackPlayerState,
+  Track as TrackPlayerTrack,
+} from 'react-native-track-player';
+import type {
+  PlaybackActiveTrackChangedEvent,
+  PlaybackErrorEvent,
+  PlaybackProgressUpdatedEvent,
+  PlaybackStateEvent,
+} from 'react-native-track-player';
 
 // ============================================
 // 类型定义
@@ -37,11 +48,8 @@ export type PlayerAction =
   | { type: 'ERROR'; error: string }
   | { type: 'UNLOAD' };
 
-// ============================================
-// 事件系统
-// ============================================
-
 type Listener = (status: PlayerStatus) => void;
+type TrackPlayerSubscription = ReturnType<typeof TrackPlayer.addEventListener>;
 
 class EventEmitter {
   private listeners: Set<Listener> = new Set();
@@ -67,8 +75,6 @@ class EventEmitter {
 // ============================================
 
 class PlayerStore {
-  private player: AudioPlayer | null = null;
-  private statusListener: ReturnType<AudioPlayer['addListener']> | null = null;
   private currentTrack: Track | null = null;
   private state: PlayerState = 'idle';
   private position: number = 0;
@@ -76,6 +82,13 @@ class PlayerStore {
   private error: string | null = null;
   private emitter = new EventEmitter();
   private isInitialized = false;
+
+  private playbackStateListener: TrackPlayerSubscription | null = null;
+  private progressListener: TrackPlayerSubscription | null = null;
+  private activeTrackListener: TrackPlayerSubscription | null = null;
+  private queueEndedListener: TrackPlayerSubscription | null = null;
+  private errorListener: TrackPlayerSubscription | null = null;
+  private appStateListener: { remove: () => void } | null = null;
 
   // 获取当前状态（只读）
   getStatus(): PlayerStatus {
@@ -98,12 +111,20 @@ class PlayerStore {
   // 初始化音频系统
   async initialize(): Promise<boolean> {
     if (this.isInitialized) return true;
-    
+
     try {
-      await setAudioModeAsync({
-        shouldPlayInBackground: true,
-        playsInSilentMode: true,
+      await TrackPlayer.setupPlayer();
+      await TrackPlayer.updateOptions({
+        stopWithApp: false,
+        progressUpdateEventInterval: 1,
+        capabilities: [],
+        compactCapabilities: [],
       });
+
+      this.setupStatusListener();
+      this.setupAppStateListener();
+      await this.syncWithPlayer();
+
       this.isInitialized = true;
       return true;
     } catch (error) {
@@ -152,9 +173,6 @@ class PlayerStore {
       return;
     }
 
-    // 清理旧播放器
-    await this.cleanupPlayer();
-
     this.state = 'loading';
     this.currentTrack = track;
     this.position = 0;
@@ -162,14 +180,9 @@ class PlayerStore {
     this.notify();
 
     try {
-      // 创建新播放器
-      this.player = createAudioPlayer(track.url);
-      
-      // 设置状态监听
-      this.setupStatusListener();
-
-      // 开始播放
-      this.player.play();
+      await TrackPlayer.reset();
+      await TrackPlayer.add(this.mapToTrackPlayerTrack(track));
+      await TrackPlayer.play();
       this.state = 'playing';
       this.notify();
     } catch (err) {
@@ -183,47 +196,37 @@ class PlayerStore {
   }
 
   private async handlePlay(): Promise<void> {
-    if (!this.player) {
-      // 如果没有播放器但有当前歌曲，重新加载
+    const playerState = await TrackPlayer.getState();
+
+    if (playerState === TrackPlayerState.None) {
       if (this.currentTrack) {
         await this.handleLoad(this.currentTrack);
       }
       return;
     }
 
-    if (this.state === 'paused' || this.state === 'completed') {
-      if (this.state === 'completed') {
-        // 播放完成状态，seek 到开头
-        const player = this.player;
-        player.seekTo(0);
-        this.position = 0;
-      }
-      this.player.play();
-      this.state = 'playing';
-      this.notify();
+    if (this.state === 'completed') {
+      await TrackPlayer.seekTo(0);
+      this.position = 0;
     }
+
+    await TrackPlayer.play();
+    this.state = 'playing';
+    this.notify();
   }
 
   private async handlePause(): Promise<void> {
-    if (this.player && this.state === 'playing') {
-      this.player.pause();
+    const playerState = await TrackPlayer.getState();
+    if (playerState === TrackPlayerState.Playing || playerState === TrackPlayerState.Buffering) {
+      await TrackPlayer.pause();
       this.state = 'paused';
       this.notify();
     }
   }
 
   private async handleSeek(position: number): Promise<void> {
-    // 如果没有播放器但有当前歌曲，先加载
-    if (!this.player && this.currentTrack) {
-      await this.handleLoad(this.currentTrack);
-    }
-
-    // 现在检查是否有播放器（可能在加载后有了）
-    const player = this.player;
-    if (!player) return;
-
     try {
-      await player.seekTo(position / 1000);
+      await TrackPlayer.seekTo(position / 1000);
       this.position = position;
       this.notify();
     } catch (error) {
@@ -233,25 +236,22 @@ class PlayerStore {
 
   private async handleCompleted(): Promise<void> {
     if (this.state !== 'playing') return;
-    
+
     this.state = 'completed';
     this.position = this.duration;
     this.notify();
-
-    // 这里不做任何自动操作，让上层决定
-    // 这样状态机保持纯净
   }
 
   private async handleError(error: string): Promise<void> {
     console.error('[PlayerStore] Error:', error);
-    await this.cleanupPlayer();
+    await this.resetPlayer();
     this.state = 'idle';
     this.error = error;
     this.notify();
   }
 
   private async handleUnload(): Promise<void> {
-    await this.cleanupPlayer();
+    await this.resetPlayer();
     this.state = 'idle';
     this.currentTrack = null;
     this.position = 0;
@@ -265,50 +265,118 @@ class PlayerStore {
   // ============================================
 
   private setupStatusListener(): void {
-    if (!this.player) return;
-
-    this.statusListener = this.player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
-      if (!status.isLoaded) return;
-
-      // 更新位置信息
-      this.position = Math.floor(status.currentTime * 1000);
-      this.duration = Math.floor((status.duration || 0) * 1000);
-
-      // 检测播放状态变化
-      if (status.playing && this.state !== 'playing') {
-        this.state = 'playing';
-      } else if (!status.playing && this.state === 'playing' && !status.didJustFinish) {
-        this.state = 'paused';
+    this.playbackStateListener = TrackPlayer.addEventListener(Event.PlaybackState, ({ state }: PlaybackStateEvent) => {
+      const mappedState = this.mapPlayerState(state);
+      if (mappedState !== this.state) {
+        this.state = mappedState;
       }
-
-      // 检测播放完成
-      if (status.didJustFinish) {
-        // 使用 setTimeout 避免在监听器中直接修改状态导致的问题
-        setTimeout(() => {
-          this.dispatch({ type: 'COMPLETED' });
-        }, 0);
-      }
-
       this.notify();
+    });
+
+    this.progressListener = TrackPlayer.addEventListener(
+      Event.PlaybackProgressUpdated,
+      ({ position, duration }: PlaybackProgressUpdatedEvent) => {
+        this.position = Math.floor(position * 1000);
+        this.duration = Math.floor(duration * 1000);
+        this.notify();
+      }
+    );
+
+    this.activeTrackListener = TrackPlayer.addEventListener(
+      Event.PlaybackActiveTrackChanged,
+      async (event: PlaybackActiveTrackChangedEvent) => {
+        const trackId = event.track ?? null;
+        const track = trackId ? await TrackPlayer.getTrack(trackId) : await TrackPlayer.getActiveTrack();
+        if (track) {
+          this.currentTrack = this.mapFromTrackPlayerTrack(track);
+          this.notify();
+        }
+      }
+    );
+
+    this.queueEndedListener = TrackPlayer.addEventListener(Event.PlaybackQueueEnded, () => {
+      this.dispatch({ type: 'COMPLETED' });
+    });
+
+    this.errorListener = TrackPlayer.addEventListener(Event.PlaybackError, (event: PlaybackErrorEvent) => {
+      const errorMessage = event.message || '播放错误';
+      this.dispatch({ type: 'ERROR', error: errorMessage });
     });
   }
 
-  private async cleanupPlayer(): Promise<void> {
-    if (this.statusListener) {
-      this.statusListener.remove();
-      this.statusListener = null;
-    }
+  private setupAppStateListener(): void {
+    if (this.appStateListener) return;
 
-    if (this.player) {
-      try {
-        if (this.player.isLoaded) {
-          this.player.pause();
-        }
-        this.player.remove();
-      } catch (error) {
-        console.error('[PlayerStore] Cleanup error:', error);
+    this.appStateListener = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        this.syncWithPlayer();
       }
-      this.player = null;
+    });
+  }
+
+  private async syncWithPlayer(): Promise<void> {
+    try {
+      const [state, position, duration, activeTrack] = await Promise.all([
+        TrackPlayer.getState(),
+        TrackPlayer.getPosition(),
+        TrackPlayer.getDuration(),
+        TrackPlayer.getActiveTrack(),
+      ]);
+
+      this.state = this.mapPlayerState(state);
+      this.position = Math.floor(position * 1000);
+      this.duration = Math.floor(duration * 1000);
+      this.currentTrack = activeTrack ? this.mapFromTrackPlayerTrack(activeTrack) : this.currentTrack;
+      this.notify();
+    } catch (error) {
+      console.error('[PlayerStore] Sync error:', error);
+    }
+  }
+
+  private mapPlayerState(state: TrackPlayerState): PlayerState {
+    switch (state) {
+      case TrackPlayerState.Playing:
+        return 'playing';
+      case TrackPlayerState.Paused:
+        return 'paused';
+      case TrackPlayerState.Buffering:
+        return 'loading';
+      case TrackPlayerState.Ready:
+        return this.state === 'loading' ? 'paused' : this.state;
+      case TrackPlayerState.Stopped:
+      case TrackPlayerState.None:
+      default:
+        return 'idle';
+    }
+  }
+
+  private mapToTrackPlayerTrack(track: Track): TrackPlayerTrack {
+    return {
+      id: track.id,
+      url: track.url,
+      title: track.title,
+      artist: track.artist,
+      artwork: track.artwork,
+      duration: track.duration,
+    };
+  }
+
+  private mapFromTrackPlayerTrack(track: TrackPlayerTrack): Track {
+    return {
+      id: String(track.id),
+      url: track.url || '',
+      title: track.title || '',
+      artist: track.artist || '',
+      artwork: typeof track.artwork === 'string' ? track.artwork : '',
+      duration: track.duration ? Math.floor(track.duration) : 0,
+    };
+  }
+
+  private async resetPlayer(): Promise<void> {
+    try {
+      await TrackPlayer.reset();
+    } catch (error) {
+      console.error('[PlayerStore] Reset error:', error);
     }
   }
 
@@ -317,5 +385,4 @@ class PlayerStore {
   }
 }
 
-// 导出单例
 export const playerStore = new PlayerStore();

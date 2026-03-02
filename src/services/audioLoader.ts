@@ -85,10 +85,9 @@ async function downloadAndLoadAudio(
   return { success: true, track: trackData };
 }
 
-export async function loadAudioForTrack(
+export async function resolveTrackForPlayback(
   track: QueuedTrack,
   options: {
-    autoLoad?: boolean;
     onMetadataLoaded?: (metadata: VideoMetadata) => void;
   } = {}
 ): Promise<AudioLoadResult> {
@@ -113,10 +112,6 @@ export async function loadAudioForTrack(
         options.onMetadataLoaded(metadataResult.metadata!);
       }
 
-      if (options.autoLoad) {
-        await playerStore.dispatch({ type: 'LOAD', track: trackData });
-      }
-
       return { success: true, track: trackData };
     }
 
@@ -132,15 +127,37 @@ export async function loadAudioForTrack(
       options.onMetadataLoaded(metadata);
     }
 
-    if (options.autoLoad) {
-      const loadResult = await downloadAndLoadAudio(track, metadata);
-      if (loadResult.success) {
-        await playerStore.dispatch({ type: 'LOAD', track: loadResult.track! });
-      }
-      return loadResult;
+    return downloadAndLoadAudio(track, metadata);
+  } catch (error) {
+    console.error('[AudioLoader] Resolve error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '加载失败',
+    };
+  }
+}
+
+export async function loadAudioForTrack(
+  track: QueuedTrack,
+  options: {
+    autoLoad?: boolean;
+    onMetadataLoaded?: (metadata: VideoMetadata) => void;
+  } = {}
+): Promise<AudioLoadResult> {
+  try {
+    const resolveResult = await resolveTrackForPlayback(track, {
+      onMetadataLoaded: options.onMetadataLoaded,
+    });
+
+    if (!resolveResult.success || !resolveResult.track) {
+      return resolveResult;
     }
 
-    return { success: true };
+    if (options.autoLoad) {
+      await playerStore.dispatch({ type: 'LOAD', track: resolveResult.track });
+    }
+
+    return resolveResult;
   } catch (error) {
     console.error('[AudioLoader] Load error:', error);
     return {
