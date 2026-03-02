@@ -29,6 +29,7 @@ function ScrollingText({
   delay = 1000,
   pause = 600,
   gap = 24,
+  align = 'left',
 }: {
   text: string;
   textStyle: any;
@@ -37,6 +38,7 @@ function ScrollingText({
   delay?: number;
   pause?: number;
   gap?: number;
+  align?: 'left' | 'center';
 }) {
   const [containerWidth, setContainerWidth] = useState(0);
   const [contentWidth, setContentWidth] = useState(0);
@@ -103,7 +105,10 @@ function ScrollingText({
 
   const widthToUse = measuredWidth || contentWidth;
   const shouldScroll = widthToUse > containerWidth;
-  const marqueeTextStyle = shouldScroll && widthToUse ? { width: widthToUse, minWidth: widthToUse, flexShrink: 0 } : { flexShrink: 0 };
+  const marqueeTextStyle = shouldScroll && widthToUse
+    ? { width: widthToUse, minWidth: widthToUse, flexShrink: 0 }
+    : { flexShrink: 1, width: '100%' };
+  const alignStyle = align === 'center' ? { textAlign: 'center' as const } : undefined;
 
   return (
     <View
@@ -111,7 +116,7 @@ function ScrollingText({
       onLayout={handleContainerLayout}
     >
       <Text
-        style={[textStyle, { position: 'absolute', opacity: 0, left: 0, top: 0, width: 10000 }]}
+        style={[textStyle, alignStyle, { position: 'absolute', opacity: 0, left: 0, top: 0, width: 10000 }]}
         numberOfLines={1}
         onTextLayout={handleHiddenTextLayout}
       >
@@ -125,7 +130,7 @@ function ScrollingText({
         }}
       >
         <Text
-          style={[textStyle, marqueeTextStyle]}
+          style={[textStyle, alignStyle, marqueeTextStyle]}
           numberOfLines={1}
           ellipsizeMode="clip"
           onLayout={handleTextLayout}
@@ -135,7 +140,7 @@ function ScrollingText({
         {shouldScroll && (
           <>
             <View style={{ width: gap }} />
-            <Text style={[textStyle, marqueeTextStyle]} numberOfLines={1} ellipsizeMode="clip">{text}</Text>
+            <Text style={[textStyle, alignStyle, marqueeTextStyle]} numberOfLines={1} ellipsizeMode="clip">{text}</Text>
           </>
         )}
       </Animated.View>
@@ -711,12 +716,18 @@ export default function PlayerScreen() {
               </View>
 
               <View style={styles.fullPlayerInfo}>
-                <Text style={styles.fullPlayerTitle} numberOfLines={2}>
-                  {currentTrack.title || currentTrack.bvid}
-                </Text>
-                <Text style={styles.fullPlayerArtist}>
-                  {currentTrack.author || '未知UP主'}
-                </Text>
+                <ScrollingText
+                  text={currentTrack.title || currentTrack.bvid}
+                  textStyle={styles.fullPlayerTitle}
+                  containerStyle={styles.fullPlayerMarquee}
+                  align="center"
+                />
+                <ScrollingText
+                  text={currentTrack.author || '未知UP主'}
+                  textStyle={styles.fullPlayerArtist}
+                  containerStyle={styles.fullPlayerMarquee}
+                  align="center"
+                />
               </View>
 
               <View style={styles.fullPlayerProgressContainer}>
@@ -948,6 +959,7 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   fullPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   fullPlayerArtworkImage: { width: 280, height: 280 },
   fullPlayerInfo: { alignItems: 'center', marginBottom: 40, width: '100%' },
+  fullPlayerMarquee: { width: '100%' },
   fullPlayerTitle: { fontSize: 22, fontWeight: 'bold', color: '#FFFFFF', textAlign: 'center', marginBottom: 8 },
   fullPlayerArtist: { fontSize: 16, color: '#9CA3AF', textAlign: 'center' },
   fullPlayerProgressContainer: { width: '100%', marginBottom: 40 },
