@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, 
-  Image, Modal, Animated, Dimensions, Alert, PanResponder
+  Image, Modal, Animated, Alert, PanResponder
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,45 +20,83 @@ import { isAudioLoaded } from '../../src/services/audioLoader';
 import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { showToast } from '../../src/components/ToastConfig';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 // 可滚动文字组件
-function ScrollingText({ text, style }: { text: string; style: any }) {
+function ScrollingText({
+  text,
+  textStyle,
+  containerStyle,
+  speed = 30,
+  delay = 1000,
+  pause = 600,
+  gap = 24,
+}: {
+  text: string;
+  textStyle: any;
+  containerStyle?: any;
+  speed?: number;
+  delay?: number;
+  pause?: number;
+  gap?: number;
+}) {
   const translateX = useRef(new Animated.Value(0)).current;
   const containerWidth = useRef(0);
   const textWidth = useRef(0);
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
 
+  const stopAnimation = useCallback(() => {
+    animationRef.current?.stop();
+    animationRef.current = null;
+    translateX.setValue(0);
+  }, [translateX]);
+
   const startAnimation = useCallback(() => {
+    animationRef.current?.stop();
+    if (!containerWidth.current || !textWidth.current) {
+      return;
+    }
     if (textWidth.current <= containerWidth.current) {
       translateX.setValue(0);
       return;
     }
-    const distance = textWidth.current - containerWidth.current + 20;
-    const duration = (distance / 50) * 1000;
+    const distance = textWidth.current - containerWidth.current + gap;
+    const duration = (distance / speed) * 1000;
+    translateX.setValue(0);
     animationRef.current = Animated.loop(
       Animated.sequence([
+        Animated.delay(delay),
         Animated.timing(translateX, { toValue: -distance, duration, useNativeDriver: true }),
-        Animated.delay(1000),
-        Animated.timing(translateX, { toValue: 0, duration, useNativeDriver: true }),
-        Animated.delay(1000),
+        Animated.delay(pause),
+        Animated.timing(translateX, { toValue: 0, duration: 0, useNativeDriver: true }),
       ])
     );
     animationRef.current.start();
-  }, [translateX]);
+  }, [delay, gap, pause, speed, translateX]);
 
   useEffect(() => {
-    const timer = setTimeout(startAnimation, 500);
+    stopAnimation();
+    const timer = setTimeout(startAnimation, 0);
     return () => {
       clearTimeout(timer);
-      animationRef.current?.stop();
+      stopAnimation();
     };
-  }, [startAnimation, text]);
+  }, [startAnimation, stopAnimation, text]);
 
   return (
-    <View style={style} onLayout={(e) => { containerWidth.current = e.nativeEvent.layout.width; startAnimation(); }}>
-      <Animated.View style={{ transform: [{ translateX }] }} onLayout={(e) => { textWidth.current = e.nativeEvent.layout.width; startAnimation(); }}>
-        <Text style={style} numberOfLines={1}>{text}</Text>
+    <View
+      style={[containerStyle, { overflow: 'hidden' }]}
+      onLayout={(e) => {
+        containerWidth.current = e.nativeEvent.layout.width;
+        startAnimation();
+      }}
+    >
+      <Animated.View
+        style={{ transform: [{ translateX }] }}
+        onLayout={(e) => {
+          textWidth.current = e.nativeEvent.layout.width;
+          startAnimation();
+        }}
+      >
+        <Text style={textStyle} numberOfLines={1}>{text}</Text>
       </Animated.View>
     </View>
   );
@@ -558,9 +596,13 @@ export default function PlayerScreen() {
             )}
           </View>
           <View style={styles.miniPlayerInfo}>
-            <ScrollingText 
-              text={`${currentTrack.title || currentTrack.bvid} - ${currentTrack.author || '未知UP主'}`}
-              style={styles.miniPlayerText}
+            <ScrollingText
+              text={currentTrack.title || currentTrack.bvid}
+              textStyle={styles.miniPlayerTitle}
+            />
+            <ScrollingText
+              text={currentTrack.author || '未知UP主'}
+              textStyle={styles.miniPlayerArtist}
             />
           </View>
           <TouchableOpacity 
@@ -845,7 +887,8 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   miniPlayerArtworkPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   miniPlayerArtworkImage: { width: 40, height: 40 },
   miniPlayerInfo: { flex: 1, marginHorizontal: 12, overflow: 'hidden' },
-  miniPlayerText: { fontSize: 14, color: isDark ? '#F9FAFB' : '#111827', fontWeight: '500' },
+  miniPlayerTitle: { fontSize: 14, color: isDark ? '#F9FAFB' : '#111827', fontWeight: '600' },
+  miniPlayerArtist: { fontSize: 12, color: isDark ? '#9CA3AF' : '#6B7280', marginTop: 2 },
   miniPlayerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#3B82F6', alignItems: 'center', justifyContent: 'center' },
   
   // 完整播放器
